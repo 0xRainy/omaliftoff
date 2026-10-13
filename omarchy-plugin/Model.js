@@ -1,0 +1,267 @@
+.pragma library
+// Pure helpers for the OmaLiftoff widget. No QML types here so it can be unit
+// tested with node (see tests/model.test.js).
+
+var FINISHED = { 3: true, 4: true, 7: true, 9: true };
+var PRECISE = { "SEC": true, "MIN": true, "HR": true, "": true };
+
+function parseCache(text) {
+  try {
+    var c = JSON.parse(text || "{}");
+    if (!c || !Array.isArray(c.launches)) return { launches: [], starred: [] };
+    return c;
+  } catch (e) {
+    return { launches: [], starred: [], error: "unreadable cache" };
+  }
+}
+
+function splitList(s) {
+  return String(s || "").split(",").map(function (x) { return x.trim().toLowerCase(); })
+    .filter(function (x) { return x.length > 0; });
+}
+
+function matchesProvider(l, list) {
+  if (!list.length) return true;
+  var n = String(l.provider || "").toLowerCase(), a = String(l.provider_abbrev || "").toLowerCase();
+  return list.indexOf(n) !== -1 || (a && list.indexOf(a) !== -1);
+}
+
+// Launches worth counting down to, soonest first.
+function upcoming(cache, nowMs, opts) {
+  opts = opts || {};
+  var filter = splitList(opts.providerFilter);
+  var starred = (cache.starred || []).map(function (s) { return String(s).toLowerCase(); });
+  return (cache.launches || []).filter(function (l) {
+    if (FINISHED[l.status_id]) return false;
+    var t = Date.parse(l.net);
+    if (isNaN(t)) return false;
+    if (l.status_id !== 6 && t < nowMs - 30 * 60 * 1000) return false;
+    if (!matchesProvider(l, filter)) return false;
+    if (opts.starredOnly && !matchesProvider(l, starred)) return false;
+    return true;
+  }).sort(function (a, b) { return Date.parse(a.net) - Date.parse(b.net); });
+}
+
+// ---- TUI test flight (display only). The TUI writes testflight.json next to the
+// cache with a heartbeat while its hidden test flight runs; it is ignored once
+// stale, so a crashed TUI can't leave the bar stuck live.
+var TEST_ID = "liftoff-test-flight";
+var TEST_STALE_MS = 5000;
+
+function parseTest(text) {
+  try { var t = JSON.parse(text || "{}"); return t && t.test && t.launch ? t : null; } catch (e) { return null; }
+}
+
+function testActive(marker, nowMs) {
+  if (!marker || !marker.launch || !marker.heartbeat_ms) return false;
+  var age = nowMs - marker.heartbeat_ms;
+  return age >= -60000 && age <= (marker.stale_ms || TEST_STALE_MS);
+}
+
+function isTest(l) { return !!l && l.id === TEST_ID; }
+
+// Cache with the live test flight first (copy; the real cache is never modified).
+function withTest(cache, marker, nowMs) {
+  if (!testActive(marker, nowMs)) return cache;
+  var out = Object.assign({}, cache);
+  out.launches = [marker.launch].concat((cache.launches || []).filter(function (l) { return l.id !== TEST_ID; }));
+  out.flight_plans = Object.assign({}, cache.flight_plans || {});
+  if (marker.flight_plan) out.flight_plans[TEST_ID] = marker.flight_plan;
+  out.test = marker;
+  return out;
+}
+
+// Upcoming, but an active test flight always comes first.
+function upcomingWithTest(cache, nowMs, opts) {
+  var u = upcoming(cache, nowMs, opts);
+  if (!cache || !cache.test) return u;
+  var t = (cache.launches || []).filter(isTest)[0];
+  return t ? [t].concat(u.filter(function (l) { return !isTest(l); })) : u;
+}
+
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+function countdown(netIso, nowMs) {
+  var s = Math.round((Date.parse(netIso) - nowMs) / 1000);
+  var sign = s >= 0 ? "-" : "+";
+  s = Math.abs(s);
+  var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (d > 0) return "T" + sign + d + "d " + pad2(h) + "h";
+  return "T" + sign + pad2(h) + ":" + pad2(m) + ":" + pad2(sec);
+}
+
+var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Don't fake precision: coarse NETs show a date.
+function displayCountdown(l, nowMs) {
+  var t = Date.parse(l.net);
+  if (PRECISE[l.net_precision || ""] || Math.abs(t - nowMs) < 3600 * 1000) return countdown(l.net, nowMs);
+  var d = new Date(t);
+  var p = l.net_precision;
+  if (p === "HALF" || p === "TOD" || p === "DAY") return "NET " + DAYS[d.getDay()] + " " + MONTHS[d.getMonth()] + " " + d.getDate();
+  if (p === "W" || p === "M") return "NET " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+  return "NET " + d.getFullYear();
+}
+
+function shortRocket(l) {
+  var r = String(l.rocket || "").trim();
+  return r || String(l.name || "").split("|")[0].trim();
+}
+
+// Nerd Font nf-md-rocket_launch (U+F14DE), painted as its own Text so it can be colored.
+var ICON = String.fromCodePoint(0xF14DE);
+
+// Bar label WITHOUT the icon. stage: optional current flight event ("MECO").
+function barText(l, nowMs, showVehicle, stage) {
+  if (!l) return "—";
+  if (isTest(l)) return "Test Flight · " + (stage ? stage + " · " : "") + displayCountdown(l, nowMs);
+  return (showVehicle ? shortRocket(l) + " · " : "") + (stage ? stage + " · " : "") + displayCountdown(l, nowMs);
+}
+
+// Icon state: "bad" (failure / partial failure: red, static) > "live" (accent, pulsing)
+// > "bad" (hold: red) > "normal" (plain foreground).
+function iconState(l, nowMs, stage) {
+  if (!l) return "normal";
+  var cls = l.status_class || "";
+  if (cls === "failure" || l.status_id === 4 || l.status_id === 7) return "bad";
+  var t = Date.parse(l.net);
+  var live = !!stage || l.status_id === 6 || !!l.webcast_live ||
+    (t <= nowMs && t > nowMs - 3 * 3600000 && cls !== "success");
+  if (live) return "live";
+  if (cls === "hold" || l.status_id === 5) return "bad";
+  return "normal";
+}
+
+// Text next to the icon? textMode: "auto" | "always" | "never".
+// auto: text only in the center section of a horizontal bar; icon-only in left/right/tray
+// and on vertical bars. Unknown region (shell didn't expose one) -> show text.
+function showText(textMode, region, vertical) {
+  var m = String(textMode || "auto").toLowerCase();
+  if (m === "always") return true;
+  if (m === "never") return false;
+  if (vertical) return false;
+  var r = String(region || "");
+  return r === "" || r === "center";
+}
+
+function isLive(l, nowMs, windowMinutes) {
+  if (!l) return false;
+  if (l.status_id === 6 || l.webcast_live) return true;
+  var dt = Date.parse(l.net) - nowMs;
+  return dt <= (windowMinutes || 60) * 60000 && dt > -30 * 60000;
+}
+
+// Returns a palette key; the widget maps it to theme or traffic colors.
+function colorKey(l) {
+  return l ? (l.status_class || "tbd") : "tbd";
+}
+
+function fmtRel(secs) {
+  var a = Math.abs(secs), sign = secs < 0 ? "-" : "+";
+  if (a >= 3600) return "T" + sign + pad2(Math.floor(a / 3600)) + ":" + pad2(Math.floor((a % 3600) / 60)) + ":" + pad2(a % 60);
+  return "T" + sign + pad2(Math.floor(a / 60)) + ":" + pad2(a % 60);
+}
+
+// Next countdown/flight milestone: SpaceX flight plan (cache.flight_plans) first,
+// LL2 timeline otherwise. Returns { label, description, at, in, text } or null.
+function nextMilestone(cache, l, nowMs) {
+  if (!l) return null;
+  var plan = cache && cache.flight_plans ? cache.flight_plans[l.id] : null;
+  var ev = plan && plan.events && plan.events.length ? plan.events : (l.milestones || []);
+  var tRel = Math.floor((nowMs - Date.parse(l.net)) / 1000);
+  for (var i = 0; i < ev.length; i++) {
+    if (ev[i].offset_secs > tRel) {
+      var e = ev[i];
+      return { label: e.label, description: e.description, at: fmtRel(e.offset_secs), in: e.offset_secs - tRel,
+        text: e.label + " at " + fmtRel(e.offset_secs) };
+    }
+  }
+  return null;
+}
+
+function parseNudge(text) {
+  try { var n = JSON.parse(text || "{}"); return n && typeof n === "object" ? n : {}; } catch (e) { return {}; }
+}
+
+// Same rule as the Rust side (nudge.rs): an absolute T-0 for one launch, ignored
+// if LL2's NET has since moved more than 120 s (hold / new attempt). Clock skew:
+// shifting every NET by -offset is equivalent to using a corrected "now".
+function applyClock(cache, nudge) {
+  if (!cache || !Array.isArray(cache.launches)) return cache;
+  var off = cache.sync && cache.sync.clock_offset_ms ? cache.sync.clock_offset_ms : 0;
+  var hasNudge = nudge && nudge.launch_id && nudge.t0 && nudge.base_net;
+  if (!off && !hasNudge) return cache;
+  var out = Object.assign({}, cache);
+  out.launches = cache.launches.map(function (l) {
+    var net = Date.parse(l.net);
+    if (hasNudge && l.id === nudge.launch_id && Math.abs(net - Date.parse(nudge.base_net)) <= 120000) net = Date.parse(nudge.t0);
+    if (off) net -= off;
+    if (net === Date.parse(l.net)) return l;
+    return Object.assign({}, l, { net: new Date(net).toISOString() });
+  });
+  return out;
+}
+
+function eventsFor(cache, l) {
+  if (!l) return [];
+  var plan = cache && cache.flight_plans ? cache.flight_plans[l.id] : null;
+  return plan && plan.events && plan.events.length ? plan.events : (l.milestones || []);
+}
+
+// Live stage info from flight plan events + the clock. Returns null unless the
+// launch is in flight or within T-10 min .. last event + 1 min and events exist.
+// { current: {label, at}|null, next: {label, at, in}|null, tRel, source }
+function liveStage(cache, l, nowMs) {
+  var ev = eventsFor(cache, l);
+  if (!l || !ev.length) return null;
+  var tRel = Math.floor((nowMs - Date.parse(l.net)) / 1000);
+  var last = ev[ev.length - 1].offset_secs;
+  var inFlight = l.status_id === 6;
+  if (!inFlight && !(PRECISE[l.net_precision || ""] && tRel >= -600 && tRel <= last + 60)) return null;
+  var cur = null, nxt = null;
+  for (var i = 0; i < ev.length; i++) {
+    if (ev[i].offset_secs <= tRel) cur = ev[i];
+    else { nxt = ev[i]; break; }
+  }
+  var plan = cache && cache.flight_plans ? cache.flight_plans[l.id] : null;
+  return {
+    tRel: tRel,
+    source: plan && plan.events && plan.events.length ? "spacex.com" : "LL2",
+    current: cur ? { label: cur.label, description: cur.description || "", at: fmtRel(cur.offset_secs) } : null,
+    next: nxt ? { label: nxt.label, description: nxt.description || "", at: fmtRel(nxt.offset_secs), in: nxt.offset_secs - tRel } : null
+  };
+}
+
+function shortSecs(s) {
+  s = Math.max(0, Math.round(s));
+  if (s >= 3600) return Math.floor(s / 3600) + "h" + pad2(Math.floor((s % 3600) / 60)) + "m";
+  if (s >= 60) return Math.floor(s / 60) + "m" + pad2(s % 60) + "s";
+  return s + "s";
+}
+
+function localTime(iso) {
+  if (!iso) return "";
+  var d = new Date(Date.parse(iso));
+  return DAYS[d.getDay()] + " " + MONTHS[d.getMonth()] + " " + d.getDate() + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+}
+
+function ago(iso, nowMs) {
+  if (!iso) return "never";
+  var m = Math.floor((nowMs - Date.parse(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m ago";
+}
+
+function hidden(l, nowMs, hideBeyondDays) {
+  if (!l) return false;
+  if (!hideBeyondDays || hideBeyondDays <= 0) return false;
+  return Date.parse(l.net) - nowMs > hideBeyondDays * 86400000;
+}
+
+// Node test hook (ignored by QML).
+if (typeof module !== "undefined") module.exports = {
+  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, displayCountdown: displayCountdown,
+  barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
+};

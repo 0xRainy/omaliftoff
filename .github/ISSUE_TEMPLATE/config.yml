@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Launch data is wrong (time, pad, mission)
+    url: https://thespacedevs.com/
+    about: OmaLiftoff shows Launch Library 2 data as-is; schedule corrections belong upstream with The Space Devs.

@@ -1,0 +1,172 @@
+{
+ "id": 4797,
+ "documentId": "db2ylxgmojdhhd40doaiz7zz",
+ "correlationId": "E97E2FFEFD968B2A3D838D7A523435948C99FC50EEBBA8B8E8B0FBF5FCE99129",
+ "missionId": "ussf481",
+ "title": "USSF-481 Mission",
+ "callToAction": "WATCH",
+ "endDate": null,
+ "followDragonEnabled": false,
+ "vehicleTrackerEnabled": false,
+ "returnFromIssEnabled": false,
+ "toTheIssEnabled": false,
+ "toTheIssTense": null,
+ "imageDesktop": null,
+ "imageMobile": null,
+ "videoDesktop": null,
+ "videoMobile": null,
+ "infographicDesktop": null,
+ "infographicMobile": null,
+ "preLaunchTimeline": {
+  "id": 209,
+  "name": "Falcon 9 Payload",
+  "title": "Countdown",
+  "disclaimer": null,
+  "timeHeader": "Hr/Min/Sec",
+  "descriptionHeader": "Event",
+  "createdAt": "2022-12-14T22:11:12.963Z",
+  "updatedAt": "2022-12-14T22:12:28.245Z",
+  "publishedAt": "2022-12-14T22:11:42.480Z",
+  "documentId": "ig8ykoo4qgrofai23dtyb06m",
+  "locale": null,
+  "timelineEntries": [
+   {
+    "id": 14873,
+    "time": "00:38:00",
+    "description": "SpaceX Launch Director verifies go for propellant load"
+   },
+   {
+    "id": 14874,
+    "time": "00:35:00",
+    "description": "RP-1 (rocket grade kerosene) loading begins"
+   },
+   {
+    "id": 14875,
+    "time": "00:35:00",
+    "description": "1st stage LOX (liquid oxygen) loading begins"
+   },
+   {
+    "id": 14876,
+    "time": "00:16:00",
+    "description": "2nd stage LOX loading begins"
+   },
+   {
+    "id": 14877,
+    "time": "00:07:00",
+    "description": "Falcon 9 begins engine chill prior to launch"
+   },
+   {
+    "id": 14878,
+    "time": "00:01:00",
+    "description": "Command flight computer to begin final prelaunch checks"
+   },
+   {
+    "id": 14879,
+    "time": "00:01:00",
+    "description": "Propellant tank pressurization to flight pressure begins"
+   },
+   {
+    "id": 14880,
+    "time": "00:00:45",
+    "description": "SpaceX Launch Director verifies go for launch"
+   },
+   {
+    "id": 14881,
+    "time": "00:00:03",
+    "description": "Engine controller commands engine ignition sequence to start"
+   },
+   {
+    "id": 14882,
+    "time": "00:00:00",
+    "description": "Falcon 9 liftoff"
+   }
+  ]
+ },
+ "postLaunchTimeline": {
+  "id": 2675,
+  "title": "Launch, Landing, and Deployment",
+  "disclaimer": "All Times Approximate",
+  "timeHeader": "Hr/Min/Sec",
+  "descriptionHeader": "Event",
+  "timelineEntries": [
+   {
+    "id": 42904,
+    "time": "00:01:07",
+    "description": "Max Q (moment of peak mechanical stress on the rocket)"
+   },
+   {
+    "id": 42905,
+    "time": "00:02:26",
+    "description": "1st stage main engine cutoff (MECO)"
+   },
+   {
+    "id": 42906,
+    "time": "00:02:29",
+    "description": "1st and 2nd stages separate"
+   },
+   {
+    "id": 42907,
+    "time": "00:02:36",
+    "description": "2nd stage engine starts (SES-1)"
+   },
+   {
+    "id": 42908,
+    "time": "00:03:01",
+    "description": "Fairing separation"
+   },
+   {
+    "id": 42909,
+    "time": "00:06:01",
+    "description": "1st stage entry burn begins"
+   },
+   {
+    "id": 42910,
+    "time": "00:06:24",
+    "description": "1st stage entry burn ends"
+   },
+   {
+    "id": 42911,
+    "time": "00:08:00",
+    "description": "1st stage landing burn begins"
+   },
+   {
+    "id": 42912,
+    "time": "00:08:09",
+    "description": "1st stage lands on the Of Course I Still Love You droneship"
+   }
+  ]
+ },
+ "astronauts": [],
+ "webcasts": [
+  {
+   "id": 2868,
+   "videoId": "1aJbdEzYpPaKX",
+   "streamingVideoType": "x-live-studio",
+   "title": null,
+   "date": null,
+   "isFeatured": null,
+   "imageDesktop": null,
+   "imageMobile": null
+  }
+ ],
+ "paragraphs": [
+  {
+   "id": 13911,
+   "content": "SpaceX is targeting Thursday, October 15 for a Falcon 9 launch of the USSF-481 mission from Space Launch Complex 4E (SLC-4E) at Vandenberg Space Force Base in California. The four-hour launch window opens at 4:44 p.m. PT. If needed, there is a backup opportunity on Friday, October 16 at 4:35 p.m. PT. "
+  },
+  {
+   "id": 13912,
+   "content": "A live webcast of the USSF-481 mission will begin about 10 minutes prior to liftoff, which you can watch here and on <a href=\"https://twitter.com/SpaceX\" target=\"_\">X @SpaceX</a>. "
+  },
+  {
+   "id": 13913,
+   "content": "This will be the 28th flight for the first stage booster supporting this mission, which previously launched Crew-7, CRS-29, PACE, Transporter-10, EarthCARE, NROL-186, Transporter-13, TRACERS, NROL-48, COSMO-SkyMED Second Generation FM3, USSF-153, and 16 Starlink missions. Following stage separation, the first stage will land on the Of Course I Still Love You droneship, which will be stationed in the Pacific Ocean."
+  },
+  {
+   "id": 13914,
+   "content": "There is the possibility that residents of Santa Barbara, San Luis Obispo, and Ventura counties may hear <a href=\"https://www.spacex.com/updates/#starship-sonic-boom\" target=\"_\"> one or more sonic booms</a> during the launch, but what residents experience will depend on weather and other conditions."
+  }
+ ],
+ "carousel": null,
+ "media": null
+}

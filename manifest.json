@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "id": "liftoff.tracker",
+  "name": "OmaLiftoff",
+  "version": "0.1.0",
+  "author": "OmaLiftoff contributors",
+  "license": "MIT",
+  "description": "Next rocket launch in your Omarchy bar: countdown, live flight events and a launch popup. Needs the OmaLiftoff companion (daemon + TUI, installed by the bundled install.sh); the widget itself only reads its local cache.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "omarchy-plugin/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaLiftoff",
+    "category": "Space",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "showVehicle": true,
+      "providerFilter": "",
+      "starredOnly": false,
+      "liveWindowMinutes": 60,
+      "hideBeyondDays": 0,
+      "colorMode": "Theme",
+      "cachePath": "",
+      "liftoffBinary": "$HOME/.local/bin/liftoff",
+      "terminalCommand": "omarchy-launch-or-focus-tui",
+      "textMode": "auto"
+    },
+    "schema": [
+      {
+        "key": "showVehicle",
+        "type": "boolean",
+        "label": "Show vehicle name",
+        "defaultValue": true,
+        "description": "🚀 Falcon 9 · T-02:14:07 vs. 🚀 T-02:14:07"
+      },
+      {
+        "key": "textMode",
+        "type": "enum",
+        "label": "Show text",
+        "options": [
+          "auto",
+          "always",
+          "never"
+        ],
+        "defaultValue": "auto",
+        "description": "auto: icon + text in the center section, icon only in the left/right sections (and on vertical bars). The tooltip always has the full text."
+      },
+      {
+        "key": "providerFilter",
+        "type": "string",
+        "label": "Providers (comma separated, blank = all)",
+        "defaultValue": "",
+        "description": "Only count down to launches by these providers, e.g. SpaceX, Rocket Lab. Matches name or abbreviation."
+      },
+      {
+        "key": "starredOnly",
+        "type": "boolean",
+        "label": "Starred providers only",
+        "defaultValue": false,
+        "description": "Use the starred_providers list from ~/.config/liftoff/config.toml."
+      },
+      {
+        "key": "liveWindowMinutes",
+        "type": "integer",
+        "label": "Live mode window (minutes)",
+        "min": 5,
+        "max": 240,
+        "step": 5,
+        "defaultValue": 60,
+        "description": "Inside this window the widget pulses and shows LIVE when a webcast is up."
+      },
+      {
+        "key": "hideBeyondDays",
+        "type": "integer",
+        "label": "Hide when next launch is more than N days away (0 = never)",
+        "min": 0,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 0
+      },
+      {
+        "key": "colorMode",
+        "type": "enum",
+        "label": "Popup status colors",
+        "options": [
+          "Theme",
+          "Traffic light"
+        ],
+        "defaultValue": "Theme",
+        "description": "Colors in the popup. The bar shows plain theme text; only the rocket icon is colored (accent pulse while live, red on hold/failure)."
+      },
+      {
+        "key": "cachePath",
+        "type": "path",
+        "label": "Cache file",
+        "defaultValue": "",
+        "description": "Blank = $XDG_CACHE_HOME/liftoff/launches.json"
+      },
+      {
+        "key": "liftoffBinary",
+        "type": "string",
+        "label": "liftoff binary",
+        "defaultValue": "$HOME/.local/bin/liftoff"
+      },
+      {
+        "key": "terminalCommand",
+        "type": "string",
+        "label": "TUI launcher",
+        "defaultValue": "omarchy-launch-or-focus-tui",
+        "description": "Command used to open `liftoff tui` from the popup."
+      }
+    ]
+  }
+}
