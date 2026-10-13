@@ -221,7 +221,19 @@ fn read_marker() -> serde_json::Value {
 /// True if any TUI switched the test flight off after `started_ms` (a stop is global:
 /// with several TUIs open, Ctrl-x t f in one stops them all).
 pub fn stopped_since(started_ms: i64) -> bool {
-    read_marker()["stopped_ms"].as_i64().is_some_and(|s| s >= started_ms)
+    stopped_in(&read_marker(), started_ms)
+}
+
+/// Pure check behind [`stopped_since`]: only an explicit stop record counts.
+pub fn stopped_in(marker: &serde_json::Value, started_ms: i64) -> bool {
+    marker["stopped_ms"].as_i64().is_some_and(|s| s >= started_ms)
+}
+
+/// Record left when a TUI exits with its test flight still on. Not a stop: the bar drops
+/// it at once (`test: false`), but other TUIs keep their own test flight running and
+/// re-write their marker on the next heartbeat.
+pub fn exit_marker_json(now_ms: i64) -> serde_json::Value {
+    serde_json::json!({ "test": false, "exited_ms": now_ms })
 }
 
 pub fn write_marker(now: DateTime<Utc>, t: f64) {
@@ -234,11 +246,13 @@ pub fn stop_marker() {
     write_json(&serde_json::json!({ "test": false, "stopped_ms": Utc::now().timestamp_millis() }));
 }
 
-/// TUI exiting with its test flight on: remove the marker if this process wrote it.
+/// TUI exiting with its test flight on: drop the marker if this process wrote it.
+/// This must not be a stop record, or every other TUI running a test flight would
+/// see `stopped_since` and end its flight early.
 pub fn clear_marker() {
     let m = read_marker();
     if m["pid"].as_u64() == Some(std::process::id() as u64) {
-        stop_marker();
+        write_json(&exit_marker_json(Utc::now().timestamp_millis()));
     }
 }
 
@@ -301,6 +315,66 @@ mod tests {
         assert!(crossed(3849.0, -120.0).is_empty());
         assert_eq!(crossed(-1.0, 0.0)[0].label, "Liftoff");
     }
+    /// Hold-after timing, sampled every 50 ms over three loops: the flight runs in real
+    /// time to REALTIME_UNTIL, warps to the last event, holds there exactly HOLD_AFTER,
+    /// then restarts at START. Nothing may end before the full period.
+    #[test]
+    fn hold_after_timing_is_exact() {
+        let rt = REALTIME_UNTIL - START;
+        let warp_len = (last_event() - REALTIME_UNTIL) / WARP;
+        let hold_start = rt + warp_len;
+        assert!((period() - (hold_start + HOLD_AFTER)).abs() < 1e-9);
+        let step = 0.05;
+        let mut prev = sim_t(0.0);
+        let mut first_deploy = None;
+        for i in 1..=((3.0 * period()) / step) as usize {
+            let e = i as f64 * step;
+            let t = sim_t(e);
+            let in_loop = e.rem_euclid(period());
+            if t < prev {
+                // only a loop restart may go backwards, and only at the period boundary
+                assert!(in_loop < step + 1e-6, "went backwards at e={e} (loop pos {in_loop}): {prev} -> {t}");
+                assert!((t - START).abs() <= step + 1e-6);
+            }
+            if in_loop >= hold_start + 1e-6 && in_loop < period() - 1e-6 {
+                assert_eq!(t, last_event(), "not holding at loop pos {in_loop}");
+            }
+            if in_loop > 1e-6 && in_loop < hold_start - 1e-6 {
+                assert!(t < last_event(), "reached the end early at loop pos {in_loop}");
+            }
+            if t == last_event() && first_deploy.is_none() {
+                first_deploy = Some(e);
+            }
+            prev = t;
+        }
+        let d = first_deploy.unwrap();
+        assert!((d - hold_start).abs() <= step + 1e-6, "deploy reached at {d}, expected {hold_start}");
+        // every event fires exactly once per loop
+        let mut fired = 0;
+        let mut p = sim_t(0.0);
+        for i in 1..=(period() / step) as usize {
+            let t = sim_t(i as f64 * step);
+            fired += crossed(p, t).len();
+            p = t;
+        }
+        assert_eq!(fired, EVENTS.iter().filter(|e| e.0 as f64 > START).count());
+    }
+
+    /// Early-end repro: TUI A runs a test flight; TUI B (also running one, so it wrote the
+    /// marker last) exits. B's exit record must not count as a stop for A.
+    #[test]
+    fn other_tui_exit_does_not_stop_flight() {
+        let a_started_ms = 1_000_000;
+        let b_exit = exit_marker_json(a_started_ms + 30_000);
+        assert!(!stopped_in(&b_exit, a_started_ms));
+        // an explicit Ctrl-x t f stop in another TUI still stops everyone
+        let stop = serde_json::json!({ "test": false, "stopped_ms": a_started_ms + 30_000 });
+        assert!(stopped_in(&stop, a_started_ms));
+        // a stop from before A started does not
+        let old = serde_json::json!({ "test": false, "stopped_ms": a_started_ms - 1 });
+        assert!(!stopped_in(&old, a_started_ms));
+    }
+
     #[test]
     fn never_ntfy() {
         let cfg = crate::config::NotifyConfig { ntfy: true, ntfy_topic: "real-topic".into(), ..Default::default() };

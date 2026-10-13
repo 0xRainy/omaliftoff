@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Test flight could end early with two TUIs open**: closing one TUI that had a test flight running left
+  a stop record, so the test flight in every other TUI switched off too. Closing a TUI now only clears
+  the bar marker; an explicit Ctrl-x t f still stops all of them.
+
 ## 0.1.1 (2026-10-13)
 
 Fixes.
