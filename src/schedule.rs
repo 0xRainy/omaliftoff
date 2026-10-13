@@ -1,7 +1,7 @@
 //! Pure, clock-injected logic: countdown text, refresh cadence, API budget and
 //! notification planning. Everything here is unit tested; nothing does I/O.
 use crate::config::NotifyConfig;
-use crate::model::{status, Launch, Throttle};
+use crate::model::{Launch, Throttle, status};
 use chrono::{DateTime, Duration, Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,11 +26,7 @@ pub fn format_countdown(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let secs = -rel_secs(net, now);
     let (sign, s) = if secs >= 0 { ('-', secs) } else { ('+', -secs) };
     let (d, h, m, sec) = (s / 86400, (s % 86400) / 3600, (s % 3600) / 60, s % 60);
-    if d > 0 {
-        format!("T{sign}{d}d {h:02}h")
-    } else {
-        format!("T{sign}{h:02}:{m:02}:{sec:02}")
-    }
+    if d > 0 { format!("T{sign}{d}d {h:02}h") } else { format!("T{sign}{h:02}:{m:02}:{sec:02}") }
 }
 
 /// Countdown that does not invent precision: coarse NETs show a date instead.
@@ -247,21 +243,11 @@ fn describe(l: &Launch) -> String {
 }
 
 fn title_name(l: &Launch) -> String {
-    if l.mission.is_empty() {
-        l.name.clone()
-    } else {
-        format!("{} · {}", l.short_rocket(), l.mission)
-    }
+    if l.mission.is_empty() { l.name.clone() } else { format!("{} · {}", l.short_rocket(), l.mission) }
 }
 
 /// Decide which alerts are due now. Pure: caller marks them in `state` after sending.
-pub fn plan_alerts(
-    launches: &[Launch],
-    cfg: &NotifyConfig,
-    starred: &[String],
-    now: DateTime<Utc>,
-    state: &State,
-) -> Vec<Alert> {
+pub fn plan_alerts(launches: &[Launch], cfg: &NotifyConfig, starred: &[String], now: DateTime<Utc>, state: &State) -> Vec<Alert> {
     let mut out = Vec::new();
     for l in launches {
         if status::is_finished(l.status_id) || l.status_id == status::IN_FLIGHT {
@@ -279,11 +265,8 @@ pub fn plan_alerts(
 
         // ---- change alerts (only for launches we already told the user about)
         if cfg.notify_changes {
-            let prev: Vec<&Fired> = th
-                .iter()
-                .filter_map(|m| state.fired.get(&format!("{}:lead:{m}", l.id)))
-                .filter(|f| f.at > now - Duration::hours(48))
-                .collect();
+            let prev: Vec<&Fired> =
+                th.iter().filter_map(|m| state.fired.get(&format!("{}:lead:{m}", l.id))).filter(|f| f.at > now - Duration::hours(48)).collect();
             if let Some(last) = prev.iter().max_by_key(|f| f.at) {
                 if l.status_id == status::HOLD {
                     let key = format!("{}:hold:{}", l.id, l.net.timestamp());
@@ -303,11 +286,8 @@ pub fn plan_alerts(
                 } else if l.net - last.net > Duration::minutes(5) {
                     let key = format!("{}:slip:{}", l.id, l.net.timestamp());
                     if !state.fired.contains_key(&key) {
-                        let when = if (l.net - now) > Duration::hours(20) {
-                            l.net.with_timezone(&Local).format("%a %b %-d %H:%M").to_string()
-                        } else {
-                            local.clone()
-                        };
+                        let when =
+                            if (l.net - now) > Duration::hours(20) { l.net.with_timezone(&Local).format("%a %b %-d %H:%M").to_string() } else { local.clone() };
                         out.push(Alert {
                             key,
                             launch_id: l.id.clone(),
@@ -343,12 +323,8 @@ pub fn plan_alerts(
             }
         }
         // Don't fire a coarser alert if a finer one already fired for this same NET.
-        let finer_fired = th.iter().filter(|x| **x < m).any(|x| {
-            state
-                .fired
-                .get(&format!("{}:lead:{x}", l.id))
-                .is_some_and(|f| (f.net - l.net).abs() <= rearm_tolerance(*x))
-        });
+        let finer_fired =
+            th.iter().filter(|x| **x < m).any(|x| state.fired.get(&format!("{}:lead:{x}", l.id)).is_some_and(|f| (f.net - l.net).abs() <= rearm_tolerance(*x)));
         if finer_fired {
             continue;
         }
@@ -426,9 +402,18 @@ mod tests {
         let n = t0();
         let ms = |v: i64| n + Duration::milliseconds(v);
         for (off_ms, want) in [
-            (8_534_700i64, "T-02:22:15"), (8_534_000, "T-02:22:14"), (1_999, "T-00:00:02"), (1_000, "T-00:00:01"),
-            (999, "T-00:00:01"), (1, "T-00:00:01"), (0, "T-00:00:00"), (-1, "T-00:00:00"), (-999, "T-00:00:00"),
-            (-1_000, "T+00:00:01"), (-1_001, "T+00:00:01"), (-312_400, "T+00:05:12"),
+            (8_534_700i64, "T-02:22:15"),
+            (8_534_000, "T-02:22:14"),
+            (1_999, "T-00:00:02"),
+            (1_000, "T-00:00:01"),
+            (999, "T-00:00:01"),
+            (1, "T-00:00:01"),
+            (0, "T-00:00:00"),
+            (-1, "T-00:00:00"),
+            (-999, "T-00:00:00"),
+            (-1_000, "T+00:00:01"),
+            (-1_001, "T+00:00:01"),
+            (-312_400, "T+00:05:12"),
         ] {
             assert_eq!(format_countdown(ms(off_ms), n), want, "net = now + {off_ms} ms");
         }

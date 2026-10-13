@@ -1,7 +1,7 @@
 //! `liftoff config`, `liftoff setup`, `liftoff doctor`.
-use crate::config::{paths, Config};
+use crate::config::{Config, paths};
 use crate::{api, store};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use std::process::Command;
 
@@ -9,10 +9,7 @@ pub const PLUGIN_ID: &str = "liftoff.tracker";
 
 /// Parse a CLI value as TOML (bool, number, array, quoted string); bare words become strings.
 fn parse_value(raw: &str) -> toml::Value {
-    toml::from_str::<toml::Table>(&format!("v = {raw}"))
-        .ok()
-        .and_then(|mut t| t.remove("v"))
-        .unwrap_or_else(|| toml::Value::String(raw.to_string()))
+    toml::from_str::<toml::Table>(&format!("v = {raw}")).ok().and_then(|mut t| t.remove("v")).unwrap_or_else(|| toml::Value::String(raw.to_string()))
 }
 
 /// Set a dotted key (e.g. `notify.ntfy_topic`) on a config, validating the result.
@@ -103,12 +100,25 @@ fn out(cmd: &str, args: &[&str]) -> Option<String> {
 pub fn doctor() -> Result<()> {
     let mut bad = 0;
     let mut line = |ok: Option<bool>, what: &str, msg: String| {
-        let tag = match ok { Some(true) => "\x1b[32m ok \x1b[0m", Some(false) => { bad += 1; "\x1b[31mFAIL\x1b[0m" } None => "\x1b[33mwarn\x1b[0m" };
+        let tag = match ok {
+            Some(true) => "\x1b[32m ok \x1b[0m",
+            Some(false) => {
+                bad += 1;
+                "\x1b[31mFAIL\x1b[0m"
+            }
+            None => "\x1b[33mwarn\x1b[0m",
+        };
         println!("[{tag}] {what:<12} {msg}");
     };
     let cfg = match Config::load() {
-        Ok(c) => { line(Some(true), "config", paths::config_file().display().to_string()); c }
-        Err(e) => { line(Some(false), "config", format!("{e}")); return Err(anyhow!("config unreadable")) }
+        Ok(c) => {
+            line(Some(true), "config", paths::config_file().display().to_string());
+            c
+        }
+        Err(e) => {
+            line(Some(false), "config", format!("{e}"));
+            return Err(anyhow!("config unreadable"));
+        }
     };
     // service
     let active = out("systemctl", &["--user", "is-active", "liftoff.service"]).unwrap_or_default();
@@ -119,16 +129,26 @@ pub fn doctor() -> Result<()> {
     match cache.fetched_at {
         Some(t) => {
             let age = (now - t).num_minutes();
-            line(Some(age < 45), "cache", format!("{} launches, fetched {age} min ago{}", cache.launches.len(),
-                cache.last_error.as_ref().map(|e| format!(" (last error: {e})")).unwrap_or_default()));
+            line(
+                Some(age < 45),
+                "cache",
+                format!(
+                    "{} launches, fetched {age} min ago{}",
+                    cache.launches.len(),
+                    cache.last_error.as_ref().map(|e| format!(" (last error: {e})")).unwrap_or_default()
+                ),
+            );
         }
         None => line(Some(false), "cache", "never fetched — run `liftoff fetch`".into()),
     }
     // budget
     let st = store::load_state(&paths::state_file());
     let used = st.budget.used(now);
-    line(if used as u32 >= cfg.max_calls_per_hour { None } else { Some(true) }, "budget",
-        format!("{used}/{} LL2 calls in the last hour (local ledger)", cfg.max_calls_per_hour));
+    line(
+        if used as u32 >= cfg.max_calls_per_hour { None } else { Some(true) },
+        "budget",
+        format!("{used}/{} LL2 calls in the last hour (local ledger)", cfg.max_calls_per_hour),
+    );
     match api::fetch_throttle(&cfg) {
         Ok(t) => line(Some(true), "LL2", format!("reachable; server says {}/{} used", t.current_use, t.limit)),
         Err(e) => line(Some(false), "LL2", format!("{e}")),
@@ -149,13 +169,20 @@ pub fn doctor() -> Result<()> {
         line(None, "plugin", "omarchy CLI not found (TUI/daemon still work)".into());
     }
     // notifications
-    line(if !cfg.notify.desktop { None } else { Some(have("notify-send")) }, "desktop",
-        if cfg.notify.desktop { "notify-send".into() } else { "desktop alerts disabled".into() });
+    line(
+        if !cfg.notify.desktop { None } else { Some(have("notify-send")) },
+        "desktop",
+        if cfg.notify.desktop { "notify-send".into() } else { "desktop alerts disabled".into() },
+    );
     if cfg.notify.ntfy && !cfg.notify.ntfy_topic.is_empty() {
         let url = format!("{}/v1/health", cfg.notify.ntfy_server.trim_end_matches('/'));
         let r = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(8)).build().get(&url).call();
         match r {
-            Ok(_) => line(Some(true), "ntfy", format!("{} reachable (topic set{})", cfg.notify.ntfy_server, if cfg.notify.ntfy_token.is_empty() { "" } else { ", token" })),
+            Ok(_) => line(
+                Some(true),
+                "ntfy",
+                format!("{} reachable (topic set{})", cfg.notify.ntfy_server, if cfg.notify.ntfy_token.is_empty() { "" } else { ", token" }),
+            ),
             Err(ureq::Error::Status(c, _)) => line(None, "ntfy", format!("{url} answered {c} (server may not expose /v1/health)")),
             Err(e) => line(Some(false), "ntfy", format!("{e}")),
         }

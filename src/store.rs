@@ -2,7 +2,7 @@
 use crate::model::Cache;
 use crate::schedule::State;
 use anyhow::Result;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::path::Path;
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -20,10 +20,7 @@ pub fn save_json<T: Serialize>(path: &Path, v: &T) -> Result<()> {
 }
 
 pub fn load_json<T: DeserializeOwned + Default>(path: &Path) -> T {
-    std::fs::read(path)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 pub fn load_cache(path: &Path) -> Cache {

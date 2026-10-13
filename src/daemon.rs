@@ -1,7 +1,7 @@
 //! Fetch loop + notification loop. The daemon is the single writer of the
 //! cache and state files; other front-ends request refreshes via a flag file.
-use crate::config::{paths, Config};
-use crate::model::{Cache, CACHE_VERSION};
+use crate::config::{Config, paths};
+use crate::model::{CACHE_VERSION, Cache};
 use crate::schedule::{self, State};
 use crate::{api, notify, planner, spacex, store};
 use anyhow::Result;
@@ -30,11 +30,8 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
         }
     }
     if !unlimited(cfg) && state.budget.remaining(now, cfg.max_calls_per_hour) == 0 {
-        cache.last_error = Some(format!(
-            "local budget exhausted ({} calls/hr); next at {}",
-            cfg.max_calls_per_hour,
-            state.budget.next_allowed(now, cfg.max_calls_per_hour)
-        ));
+        cache.last_error =
+            Some(format!("local budget exhausted ({} calls/hr); next at {}", cfg.max_calls_per_hour, state.budget.next_allowed(now, cfg.max_calls_per_hour)));
         return Ok(false);
     }
     // api-throttle is free; use it to avoid burning a call into a 429.
@@ -76,13 +73,8 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
     // News: SNAPI has no hard limit but be polite (every 30 min).
     if cache.news_fetched_at.is_none_or(|t| now - t > Duration::minutes(30)) {
         let mut news = std::collections::BTreeMap::new();
-        let ids: Vec<String> = cache
-            .launches
-            .iter()
-            .filter(|l| l.net > now - Duration::hours(1))
-            .take(cfg.news_for_next as usize)
-            .map(|l| l.id.clone())
-            .collect();
+        let ids: Vec<String> =
+            cache.launches.iter().filter(|l| l.net > now - Duration::hours(1)).take(cfg.news_for_next as usize).map(|l| l.id.clone()).collect();
         for id in ids {
             match api::fetch_news(&id, 6) {
                 Ok(a) if !a.is_empty() => {
@@ -288,7 +280,8 @@ mod tests {
     #[test]
     fn sync_reanchors_net() {
         let net: chrono::DateTime<Utc> = "2026-10-13T18:00:00Z".parse().unwrap();
-        let mut cache = Cache { launches: vec![Launch { id: "a".into(), net, milestones: vec![Default::default()], ..Default::default() }], ..Default::default() };
+        let mut cache =
+            Cache { launches: vec![Launch { id: "a".into(), net, milestones: vec![Default::default()], ..Default::default() }], ..Default::default() };
         let fresh = Launch { id: "a".into(), net: net + Duration::seconds(7), status_id: 6, ..Default::default() };
         assert_eq!(apply_sync(&mut cache, fresh), Some(7));
         assert_eq!(cache.launches[0].net, net + Duration::seconds(7));

@@ -52,15 +52,29 @@ pub fn plan(launches: &[Launch], cfg: &NotifyConfig, starred: &[String], now: Da
         fresh.retain(|l| crate::config::is_starred(starred, &l.provider, &l.provider_abbrev));
     }
     let mk = |key: String, id: String, net, title: String, body: String, url| Alert {
-        key, launch_id: id, kind: AlertKind::New, net, title, body, url, critical: false, also_covers: vec![],
+        key,
+        launch_id: id,
+        kind: AlertKind::New,
+        net,
+        title,
+        body,
+        url,
+        critical: false,
+        also_covers: vec![],
     };
     if fresh.len() > BATCH_OVER {
         let mut body: Vec<String> = fresh.iter().take(6).map(|l| describe(l)).collect();
         if fresh.len() > 6 {
             body.push(format!("…and {} more (liftoff tui)", fresh.len() - 6));
         }
-        return vec![mk(format!("new:batch:{}", now.timestamp()), "new-batch".into(), fresh[0].net,
-            format!("󱓞 {} new launches added", fresh.len()), body.join("\n"), None)];
+        return vec![mk(
+            format!("new:batch:{}", now.timestamp()),
+            "new-batch".into(),
+            fresh[0].net,
+            format!("󱓞 {} new launches added", fresh.len()),
+            body.join("\n"),
+            None,
+        )];
     }
     fresh.iter().map(|l| mk(format!("{}:new", l.id), l.id.clone(), l.net, "󱓞 New launch added".into(), describe(l), l.webcast_url.clone())).collect()
 }
@@ -69,10 +83,20 @@ pub fn plan(launches: &[Launch], cfg: &NotifyConfig, starred: &[String], now: Da
 mod tests {
     use super::*;
     fn l(id: &str, prov: &str) -> Launch {
-        Launch { id: id.into(), name: format!("Rocket | {id}"), mission: id.into(), provider: prov.into(), rocket: "Falcon 9 Block 5".into(),
-            net: Utc::now(), net_precision: "MIN".into(), ..Default::default() }
+        Launch {
+            id: id.into(),
+            name: format!("Rocket | {id}"),
+            mission: id.into(),
+            provider: prov.into(),
+            rocket: "Falcon 9 Block 5".into(),
+            net: Utc::now(),
+            net_precision: "MIN".into(),
+            ..Default::default()
+        }
     }
-    fn cfg() -> NotifyConfig { NotifyConfig::default() }
+    fn cfg() -> NotifyConfig {
+        NotifyConfig::default()
+    }
 
     #[test]
     fn first_run_seeds_silently() {

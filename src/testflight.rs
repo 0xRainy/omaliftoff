@@ -3,7 +3,7 @@
 //! written to the cache or dedupe state and never seen by the daemon; the bar
 //! widget sees it only through a heartbeat marker file (display only), and its
 //! alerts go to the desktop only — never ntfy.
-use crate::model::{status, Booster, FlightPlan, Launch, Milestone, ProviderStats, RocketStats};
+use crate::model::{Booster, FlightPlan, Launch, Milestone, ProviderStats, RocketStats, status};
 use crate::schedule::{Alert, AlertKind};
 use chrono::{DateTime, Duration, Utc};
 
@@ -121,7 +121,15 @@ pub fn launch(now: DateTime<Utc>, t: f64) -> Launch {
         lat: Some(28.5618),
         lon: Some(-80.577),
         webcast_live: t > -600.0 && t < last_event(),
-        rocket_stats: RocketStats { length_m: Some(70.0), diameter_m: Some(3.65), launch_mass_t: Some(549.0), leo_kg: Some(22800.0), thrust_kn: Some(7607.0), reusable: true, ..Default::default() },
+        rocket_stats: RocketStats {
+            length_m: Some(70.0),
+            diameter_m: Some(3.65),
+            launch_mass_t: Some(549.0),
+            leo_kg: Some(22800.0),
+            thrust_kn: Some(7607.0),
+            reusable: true,
+            ..Default::default()
+        },
         provider_stats: ProviderStats::default(),
         boosters: vec![Booster {
             kind: "Core".into(),

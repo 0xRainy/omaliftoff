@@ -1,19 +1,21 @@
 //! `liftoff tui` — btop/lazygit-style dashboard.
-use crate::config::{paths, Config};
-use crate::model::{clean, Article, Cache, FlightPlan, Launch, Milestone};
+use crate::config::{Config, paths};
+use crate::model::{Article, Cache, FlightPlan, Launch, Milestone, clean};
 use crate::schedule::{self, State};
 use crate::{api, daemon, planner, spacex, store, testflight};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, Utc};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::canvas::{Canvas, Map, MapResolution};
-use ratatui::widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Sparkline, Table, TableState, Wrap};
-use ratatui::Frame;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Sparkline, Table, TableState, Wrap,
+};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Instant, SystemTime};
 
 enum Msg {
@@ -185,12 +187,18 @@ impl App {
             Some(bg) => b.style(Style::default().bg(bg)),
             None => b,
         };
-        b
-            .borders(Borders::ALL)
+        b.borders(Borders::ALL)
             .border_type(if focus { BorderType::Thick } else { BorderType::Rounded })
             .border_style(if focus { self.c(ACCENT).add_modifier(Modifier::BOLD) } else { self.c(BORDER) })
             .title(if focus {
-                Span::styled(format!(" ▸ {title} "), if self.no_color { Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD) } else { Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD) })
+                Span::styled(
+                    format!(" ▸ {title} "),
+                    if self.no_color {
+                        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD)
+                    },
+                )
             } else {
                 Span::styled(format!(" {title} "), self.c(DIM).add_modifier(Modifier::BOLD))
             })
@@ -447,7 +455,11 @@ impl App {
     fn scroll_home(&mut self, end: bool) {
         match self.focus {
             Pane::List | Pane::Map => {
-                if end { self.move_sel(i64::MAX / 2) } else { self.move_sel(i64::MIN / 2) }
+                if end {
+                    self.move_sel(i64::MAX / 2)
+                } else {
+                    self.move_sel(i64::MIN / 2)
+                }
             }
             Pane::Details => self.details_scroll = if end { self.details_max } else { 0 },
             Pane::Telemetry => {}
@@ -576,7 +588,10 @@ impl App {
                 let slots = daemon::reserved_slots(&self.cfg, &self.cache, &self.state, now);
                 if !slots.is_empty() && !planner::allowed_now(&self.state.budget.calls, &slots, self.cfg.max_calls_per_hour, now) {
                     let next = planner::next_unreserved(&self.state.budget.calls, &slots, self.cfg.max_calls_per_hour, now, now);
-                    self.toast(format!("refresh held: calls reserved for final syncs (free at {}) — showing cache", next.with_timezone(&Local).format("%H:%M:%S")));
+                    self.toast(format!(
+                        "refresh held: calls reserved for final syncs (free at {}) — showing cache",
+                        next.with_timezone(&Local).format("%H:%M:%S")
+                    ));
                     return;
                 }
                 let _ = store::write_atomic(&daemon::refresh_request_file(), b"1");
@@ -601,7 +616,8 @@ impl App {
         match m.kind {
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp if self.overlay == Overlay::News => {
                 let n = self.selected().and_then(|l| self.news.get(&l.id)).map(|v| v.len()).unwrap_or(0);
-                self.news_sel = if m.kind == MouseEventKind::ScrollDown { (self.news_sel + 1).min(n.saturating_sub(1)) } else { self.news_sel.saturating_sub(1) };
+                self.news_sel =
+                    if m.kind == MouseEventKind::ScrollDown { (self.news_sel + 1).min(n.saturating_sub(1)) } else { self.news_sel.saturating_sub(1) };
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp if self.overlay == Overlay::None => {
                 // wheel scrolls the pane under the pointer (and focuses it), else the focused pane
@@ -634,11 +650,7 @@ impl App {
 }
 
 fn open_url(u: &str) {
-    let _ = std::process::Command::new("xdg-open")
-        .arg(u)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+    let _ = std::process::Command::new("xdg-open").arg(u).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
 }
 
 // ------------------------------------------------------------------ big font
@@ -695,22 +707,10 @@ fn twinkle(x: u16, y: u16, tick: u64) -> Option<char> {
 fn draw(f: &mut Frame, app: &mut App) {
     let now = app.now();
     let area = f.area();
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(10), Constraint::Length(7), Constraint::Length(1)])
-        .split(area);
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(44), Constraint::Percentage(56)])
-        .split(rows[0]);
-    let left = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(13), Constraint::Min(5)])
-        .split(cols[0]);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-        .split(cols[1]);
+    let rows = Layout::default().direction(Direction::Vertical).constraints([Constraint::Min(10), Constraint::Length(7), Constraint::Length(1)]).split(area);
+    let cols = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(44), Constraint::Percentage(56)]).split(rows[0]);
+    let left = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(13), Constraint::Min(5)]).split(cols[0]);
+    let right = Layout::default().direction(Direction::Vertical).constraints([Constraint::Percentage(45), Constraint::Percentage(55)]).split(cols[1]);
 
     // Paint every cell first: nothing from a previous frame or a stray write survives.
     f.render_widget(Clear, area);
@@ -806,7 +806,10 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
         lines.push(Line::from(Span::styled(cd, style)));
     }
     lines.push(Line::raw(""));
-    let mut meta = vec![Span::styled(format!(" {} ", l.status_name.to_uppercase()), if app.no_color { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default().bg(col).fg(Color::Black).add_modifier(Modifier::BOLD) })];
+    let mut meta = vec![Span::styled(
+        format!(" {} ", l.status_name.to_uppercase()),
+        if app.no_color { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default().bg(col).fg(Color::Black).add_modifier(Modifier::BOLD) },
+    )];
     if let Some(p) = l.probability {
         meta.push(Span::styled(format!("  ☁ {p}% go"), app.c(FG)));
     }
@@ -818,10 +821,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     if let Some(w) = &l.weather_concerns {
         lines.push(Line::from(Span::styled(format!("weather: {w}"), app.c(DIM))));
     } else {
-        lines.push(Line::from(Span::styled(
-            format!("NET {}", l.net.with_timezone(&Local).format("%a %b %-d %H:%M")),
-            app.c(DIM),
-        )));
+        lines.push(Line::from(Span::styled(format!("NET {}", l.net.with_timezone(&Local).format("%a %b %-d %H:%M")), app.c(DIM))));
     }
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
 }
@@ -832,11 +832,7 @@ fn short_countdown(l: &Launch, now: DateTime<Utc>) -> String {
         return l.net.with_timezone(&Local).format("%b %-d").to_string();
     }
     let a = secs.abs();
-    let s = if a >= 86400 {
-        format!("{}d{:02}h", a / 86400, (a % 86400) / 3600)
-    } else {
-        format!("{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60)
-    };
+    let s = if a >= 86400 { format!("{}d{:02}h", a / 86400, (a % 86400) / 3600) } else { format!("{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60) };
     format!("{}{s}", if secs >= 0 { "-" } else { "+" })
 }
 
@@ -864,7 +860,11 @@ fn draw_list(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
         [Constraint::Length(1), Constraint::Length(9), Constraint::Length(14), Constraint::Min(10), Constraint::Length(6), Constraint::Length(7)],
     )
     .header(Row::new(vec!["", "T", "Vehicle", "Mission", "LSP", "Status"]).style(app.c(DIM).add_modifier(Modifier::BOLD)))
-    .row_highlight_style(if app.no_color { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default().bg(Color::Rgb(0x2a, 0x30, 0x3c)).add_modifier(Modifier::BOLD) })
+    .row_highlight_style(if app.no_color {
+        Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default().bg(Color::Rgb(0x2a, 0x30, 0x3c)).add_modifier(Modifier::BOLD)
+    })
     .highlight_symbol("▌")
     .block(app.block(&title, app.focused(Pane::List)));
     f.render_stateful_widget(t, area, &mut app.table);
@@ -978,10 +978,13 @@ fn draw_map(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
         }
     };
-    let mut taken: Vec<Rect> = pads.iter().map(|p| {
-        let (x, y) = project(inner, p.0, p.1);
-        Rect { x, y, width: 1, height: 1 }
-    }).collect();
+    let mut taken: Vec<Rect> = pads
+        .iter()
+        .map(|p| {
+            let (x, y) = project(inner, p.0, p.1);
+            Rect { x, y, width: 1, height: 1 }
+        })
+        .collect();
     // landing zone + downrange hint for the selected launch
     if let Some(l) = &sel {
         for b in &l.boosters {
@@ -995,15 +998,20 @@ fn draw_map(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
                     let y = (y0 as f64 + (y1 as f64 - y0 as f64) * t).round() as u16;
                     buf[(x, y)].set_char('·').set_fg(if no_color { Color::Reset } else { FG });
                 }
-                buf[(x1, y1)].set_char('⊕').set_style(Style::default().fg(if no_color { Color::Reset } else { Color::Rgb(0x7a, 0xc7, 0xd6) }).add_modifier(Modifier::BOLD));
+                buf[(x1, y1)]
+                    .set_char('⊕')
+                    .set_style(Style::default().fg(if no_color { Color::Reset } else { Color::Rgb(0x7a, 0xc7, 0xd6) }).add_modifier(Modifier::BOLD));
                 taken.push(Rect { x: x1, y: y1, width: 1, height: 1 });
             }
         }
     }
-    let items: Vec<(u16, u16, u16)> = pads.iter().map(|p| {
-        let (x, y) = project(inner, p.0, p.1);
-        (x, y, pad_label(&p.2, p.3).chars().count() as u16)
-    }).collect();
+    let items: Vec<(u16, u16, u16)> = pads
+        .iter()
+        .map(|p| {
+            let (x, y) = project(inner, p.0, p.1);
+            (x, y, pad_label(&p.2, p.3).chars().count() as u16)
+        })
+        .collect();
     let spots = place_labels(&items, inner, &mut taken);
     let label_bg = app.bg().unwrap_or(Color::Reset);
     for (p, spot) in pads.iter().zip(spots) {
@@ -1098,14 +1106,23 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     ];
     if let (Some(a), Some(b)) = (l.window_start, l.window_end) {
         if a != b {
-            lines.push(kv("Window", format!("{}–{}  ({}m)", a.with_timezone(&Local).format("%H:%M"), b.with_timezone(&Local).format("%H:%M"), (b - a).num_minutes())));
+            lines.push(kv(
+                "Window",
+                format!("{}–{}  ({}m)", a.with_timezone(&Local).format("%H:%M"), b.with_timezone(&Local).format("%H:%M"), (b - a).num_minutes()),
+            ));
             lines.push(Line::from(vec![Span::raw(" ".repeat(10)), Span::styled(window_bar(a, b, l.net, now, w), app.c(FG))]));
         } else {
             lines.push(kv("Window", "instantaneous".into()));
         }
     }
     if let Some(p) = l.probability {
-        let gc = if p >= 70 { status_color("go") } else if p >= 40 { status_color("hold") } else { status_color("failure") };
+        let gc = if p >= 70 {
+            status_color("go")
+        } else if p >= 40 {
+            status_color("hold")
+        } else {
+            status_color("failure")
+        };
         let mut s = vec![Span::styled(format!("{:<10}", "Weather"), app.c(DIM))];
         s.extend(gauge_spans(app, p as f64 / 100.0, w.min(20), gc));
         s.push(Span::styled(format!(" {p}% go"), app.c(FG)));
@@ -1114,10 +1131,13 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     if let Some(wc) = &l.weather_concerns {
         lines.push(kv("Concerns", clean(wc)));
     }
-    lines.push(kv("Webcast", match &l.webcast_url {
-        Some(u) => format!("{}{u}", if l.webcast_live { "● LIVE " } else { "" }),
-        None => "—".into(),
-    }));
+    lines.push(kv(
+        "Webcast",
+        match &l.webcast_url {
+            Some(u) => format!("{}{u}", if l.webcast_live { "● LIVE " } else { "" }),
+            None => "—".into(),
+        },
+    ));
     if let Some(n) = app.news.get(&l.id) {
         lines.push(kv("News", format!("{} article(s) — press n", n.len())));
     }
@@ -1151,7 +1171,10 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
         r.diameter_m.map(|x| format!("{x} m ⌀")),
         r.launch_mass_t.map(|x| format!("{x} t")),
         r.thrust_kn.map(|x| format!("{x} kN")),
-    ].into_iter().flatten().collect();
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     if !dims.is_empty() {
         lines.push(kv("Size", dims.join(" · ")));
     }
@@ -1161,25 +1184,43 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     }
     if let (Some(t), Some(s)) = (r.total.filter(|t| *t > 0), r.successes) {
         let mut v = format!("{s}/{t} successful");
-        if let Some(c) = r.consecutive { v.push_str(&format!(" · {c} in a row")); }
+        if let Some(c) = r.consecutive {
+            v.push_str(&format!(" · {c} in a row"));
+        }
         lines.push(kv("Record", v));
     }
     if let (Some(a), Some(ok)) = (r.landings_attempted, r.landings_ok) {
-        if a > 0 { lines.push(kv("Landings", format!("{ok}/{a}"))); }
+        if a > 0 {
+            lines.push(kv("Landings", format!("{ok}/{a}")));
+        }
     }
     for b in &l.boosters {
         lines.push(head(&format!("Booster {}", if b.serial.is_empty() { b.kind.clone() } else { b.serial.clone() })));
         let mut v = vec![];
-        if let Some(n) = b.flight_number { v.push(format!("flight #{n}")); }
-        if b.reused { v.push("flight-proven".into()); }
-        if !b.turnaround.is_empty() { v.push(format!("turnaround {}", b.turnaround)); }
-        if !v.is_empty() { lines.push(kv("Flight", v.join(" · "))); }
+        if let Some(n) = b.flight_number {
+            v.push(format!("flight #{n}"));
+        }
+        if b.reused {
+            v.push("flight-proven".into());
+        }
+        if !b.turnaround.is_empty() {
+            v.push(format!("turnaround {}", b.turnaround));
+        }
+        if !v.is_empty() {
+            lines.push(kv("Flight", v.join(" · ")));
+        }
         if b.landing_attempt {
             let loc = if b.landing_abbrev.is_empty() { b.landing_location.clone() } else { format!("{} ({})", b.landing_location, b.landing_abbrev) };
             let mut s = format!("{} {}", b.landing_type, loc);
-            if let Some(d) = b.downrange_km { s.push_str(&format!(" · {d:.0} km downrange")); }
+            if let Some(d) = b.downrange_km {
+                s.push_str(&format!(" · {d:.0} km downrange"));
+            }
             lines.push(kv("Landing", s));
-            match b.landing_success { Some(true) => lines.push(kv("Result", "✓ landed".into())), Some(false) => lines.push(kv("Result", "✗ lost".into())), None => {} }
+            match b.landing_success {
+                Some(true) => lines.push(kv("Result", "✓ landed".into())),
+                Some(false) => lines.push(kv("Result", "✗ lost".into())),
+                None => {}
+            }
         } else if !b.landing_description.is_empty() || !b.landing_type.is_empty() {
             lines.push(kv("Landing", "expendable / no attempt".into()));
         }
@@ -1193,7 +1234,9 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     let ps = &l.provider_stats;
     if let (Some(t), Some(s)) = (ps.total, ps.successes) {
         let mut v = format!("{s}/{t} successful");
-        if let Some(fl) = ps.failures { v.push_str(&format!(" · {fl} failed")); }
+        if let Some(fl) = ps.failures {
+            v.push_str(&format!(" · {fl} failed"));
+        }
         lines.push(kv("Launches", v));
         if t > 0 {
             let mut sp = vec![Span::styled(format!("{:<10}", ""), app.c(DIM))];
@@ -1202,16 +1245,22 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
             lines.push(Line::from(sp));
         }
     }
-    let extra: Vec<String> = [
-        ps.consecutive.map(|c| format!("{c} in a row")),
-        ps.pending.map(|c| format!("{c} pending")),
-        ps.founded.map(|c| format!("since {c}")),
-    ].into_iter().flatten().collect();
-    if !extra.is_empty() { lines.push(kv("", extra.join(" · "))); }
+    let extra: Vec<String> =
+        [ps.consecutive.map(|c| format!("{c} in a row")), ps.pending.map(|c| format!("{c} pending")), ps.founded.map(|c| format!("since {c}"))]
+            .into_iter()
+            .flatten()
+            .collect();
+    if !extra.is_empty() {
+        lines.push(kv("", extra.join(" · ")));
+    }
     lines.push(head("Pad"));
     lines.push(kv("Pad", format!("{} · {}", l.pad, l.location)));
-    if let Some(n) = l.pad_launch_count { lines.push(kv("History", format!("{n} launches from this pad"))); }
-    if let Some(n) = l.orbital_attempt_of_year { lines.push(kv("Year", format!("orbital attempt #{n} worldwide this year"))); }
+    if let Some(n) = l.pad_launch_count {
+        lines.push(kv("History", format!("{n} launches from this pad")));
+    }
+    if let Some(n) = l.orbital_attempt_of_year {
+        lines.push(kv("Year", format!("orbital attempt #{n} worldwide this year")));
+    }
     let para = Paragraph::new(lines).wrap(Wrap { trim: true });
     let total = para.line_count(text_area.width) as u16;
     app.details_max = total.saturating_sub(text_area.height);
@@ -1227,7 +1276,12 @@ fn scrollbar(f: &mut Frame, area: Rect, total: usize, pos: usize, visible: usize
     }
     let mut st = ScrollbarState::new(total.saturating_sub(visible)).position(pos).viewport_content_length(visible);
     f.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight).begin_symbol(None).end_symbol(None).track_symbol(Some("│")).thumb_symbol("┃").thumb_style(Style::default().fg(ACCENT)),
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("┃")
+            .thumb_style(Style::default().fg(ACCENT)),
         area.inner(ratatui::layout::Margin { vertical: 1, horizontal: 0 }),
         &mut st,
     );
@@ -1235,7 +1289,15 @@ fn scrollbar(f: &mut Frame, area: Rect, total: usize, pos: usize, visible: usize
 
 fn short_dur(s: i64) -> String {
     let s = s.abs();
-    if s >= 86400 { format!("{}d{}h", s / 86400, (s % 86400) / 3600) } else if s >= 3600 { format!("{}h{:02}m", s / 3600, (s % 3600) / 60) } else if s >= 60 { format!("{}m{:02}s", s / 60, s % 60) } else { format!("{s}s") }
+    if s >= 86400 {
+        format!("{}d{}h", s / 86400, (s % 86400) / 3600)
+    } else if s >= 3600 {
+        format!("{}h{:02}m", s / 3600, (s % 3600) / 60)
+    } else if s >= 60 {
+        format!("{}m{:02}s", s / 60, s % 60)
+    } else {
+        format!("{s}s")
+    }
 }
 
 // ------------------------------------------------------------------ flight plan
@@ -1260,9 +1322,15 @@ fn draw_plan(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     let mut lines: Vec<Line> = vec![];
     if let Some(p) = &plan {
         let mut v = vec![];
-        if !p.vehicle.is_empty() { v.push(p.vehicle.clone()); }
-        if !p.launch_site.is_empty() { v.push(p.launch_site.clone()); }
-        if !p.return_site.is_empty() { v.push(format!("return: {}", p.return_site)); }
+        if !p.vehicle.is_empty() {
+            v.push(p.vehicle.clone());
+        }
+        if !p.launch_site.is_empty() {
+            v.push(p.launch_site.clone());
+        }
+        if !p.return_site.is_empty() {
+            v.push(format!("return: {}", p.return_site));
+        }
         lines.push(Line::from(Span::styled(v.join(" · "), app.c(FG))));
     } else if spacex::is_spacex(&l) {
         let msg = if app.plan_loading.contains(&l.id) { "loading spacex.com flight plan…" } else { "no spacex.com flight plan yet — showing LL2 timeline" };
@@ -1277,11 +1345,15 @@ fn draw_plan(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
         return;
     }
     let t_rel = schedule::rel_secs(l.net, now);
-    let live = l.precise() && t_rel > events.first().map(|e| e.offset_secs).unwrap_or(0) - 3600 && t_rel < events.last().map(|e| e.offset_secs).unwrap_or(0) + 1800;
+    let live =
+        l.precise() && t_rel > events.first().map(|e| e.offset_secs).unwrap_or(0) - 3600 && t_rel < events.last().map(|e| e.offset_secs).unwrap_or(0) + 1800;
     let cur = if live { crate::model::current_milestone(&events, t_rel) } else { None };
     lines.push(Line::from(vec![
         Span::styled(format!("source: {src}"), app.c(DIM)),
-        Span::styled(if live { format!("  ● live {}", crate::model::fmt_rel(t_rel)) } else { String::new() }, app.c(status_color("flight")).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            if live { format!("  ● live {}", crate::model::fmt_rel(t_rel)) } else { String::new() },
+            app.c(status_color("flight")).add_modifier(Modifier::BOLD),
+        ),
     ]));
     let header = lines.len();
     let wrapw = inner.width.saturating_sub(12) as usize;
@@ -1290,15 +1362,36 @@ fn draw_plan(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     for (i, e) in events.iter().enumerate() {
         let is_cur = cur == Some(i);
         let past = cur.is_some_and(|c| i < c);
-        if is_cur { cur_row = rows.len(); }
-        let mark = if is_cur { "▶ " } else if past { "✓ " } else { "  " };
-        let st = if is_cur { app.c(status_color("go")).add_modifier(Modifier::BOLD) } else if past { app.c(DIM) } else { app.c(FG) };
+        if is_cur {
+            cur_row = rows.len();
+        }
+        let mark = if is_cur {
+            "▶ "
+        } else if past {
+            "✓ "
+        } else {
+            "  "
+        };
+        let st = if is_cur {
+            app.c(status_color("go")).add_modifier(Modifier::BOLD)
+        } else if past {
+            app.c(DIM)
+        } else {
+            app.c(FG)
+        };
         let liftoff = e.offset_secs == 0;
         let maxw = wrapw.max(8);
-        let desc: String = if e.description.chars().count() > maxw { format!("{}…", e.description.chars().take(maxw - 1).collect::<String>()) } else { e.description.clone() };
+        let desc: String = if e.description.chars().count() > maxw {
+            format!("{}…", e.description.chars().take(maxw - 1).collect::<String>())
+        } else {
+            e.description.clone()
+        };
         rows.push(Line::from(vec![
             Span::styled(mark, st),
-            Span::styled(format!("{:<10}", crate::model::fmt_rel(e.offset_secs)), if liftoff { app.c(ACCENT).add_modifier(Modifier::BOLD) } else { app.c(DIM) }),
+            Span::styled(
+                format!("{:<10}", crate::model::fmt_rel(e.offset_secs)),
+                if liftoff { app.c(ACCENT).add_modifier(Modifier::BOLD) } else { app.c(DIM) },
+            ),
             Span::styled(desc, st),
         ]));
         if is_cur {
@@ -1396,8 +1489,20 @@ pub fn axis_x(t: f64, t0: f64, t1: f64, width: u16) -> u16 {
 pub fn event_icon(m: &Milestone) -> char {
     let l = format!("{} {}", m.label, m.description).to_lowercase();
     let map: [(&str, char); 14] = [
-        ("liftoff", '▲'), ("max q", '◈'), ("meco", '◼'), ("stage sep", '✂'), ("stages separate", '✂'), ("ses", '»'),
-        ("fairing", '◇'), ("seco", '■'), ("boostback", '↶'), ("entry", '↯'), ("landing burn", '⇣'), ("landing", '⊥'), ("deploy", '✦'), ("ignition", '✶'),
+        ("liftoff", '▲'),
+        ("max q", '◈'),
+        ("meco", '◼'),
+        ("stage sep", '✂'),
+        ("stages separate", '✂'),
+        ("ses", '»'),
+        ("fairing", '◇'),
+        ("seco", '■'),
+        ("boostback", '↶'),
+        ("entry", '↯'),
+        ("landing burn", '⇣'),
+        ("landing", '⊥'),
+        ("deploy", '✦'),
+        ("ignition", '✶'),
     ];
     map.iter().find(|(k, _)| l.contains(k)).map(|x| x.1).unwrap_or('•')
 }
@@ -1409,7 +1514,12 @@ pub fn is_booster_event(m: &Milestone, sep: Option<i64>) -> bool {
 }
 
 fn stage_sep(ev: &[Milestone]) -> Option<i64> {
-    ev.iter().find(|e| { let d = e.description.to_lowercase(); d.contains("stages separate") || e.label == "Stage sep" }).map(|e| e.offset_secs)
+    ev.iter()
+        .find(|e| {
+            let d = e.description.to_lowercase();
+            d.contains("stages separate") || e.label == "Stage sep"
+        })
+        .map(|e| e.offset_secs)
 }
 
 /// Engines lit at mission time t (for the exhaust flicker).
@@ -1620,7 +1730,11 @@ fn draw_timeline(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
         axis[*x as usize] = (if is_sel { "▲" } else { "┴" }.into(), if is_sel { st.add_modifier(Modifier::BOLD) } else { st });
         let Some((row, start)) = placed[i].take() else { continue };
         let lst = if is_sel {
-            if app.no_color { Style::default().add_modifier(Modifier::REVERSED) } else { Style::default().fg(Color::Black).bg(status_color(&l.status_class)).add_modifier(Modifier::BOLD) }
+            if app.no_color {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(Color::Black).bg(status_color(&l.status_class)).add_modifier(Modifier::BOLD)
+            }
         } else {
             app.c(FG)
         };
@@ -1640,7 +1754,13 @@ fn ago(t: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
         None => "never".into(),
         Some(t) => {
             let m = (now - t).num_minutes();
-            if m < 1 { "just now".into() } else if m < 60 { format!("{m}m ago") } else { format!("{}h{}m ago", m / 60, m % 60) }
+            if m < 1 {
+                "just now".into()
+            } else if m < 60 {
+                format!("{m}m ago")
+            } else {
+                format!("{}h{}m ago", m / 60, m % 60)
+            }
         }
     }
 }
@@ -1648,7 +1768,18 @@ fn ago(t: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
 fn draw_footer(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     let key = |k: &str, d: &str| vec![Span::styled(format!(" {k}"), app.c(ACCENT).add_modifier(Modifier::BOLD)), Span::styled(format!(" {d} "), app.c(DIM))];
     let mut spans = vec![];
-    for (k, d) in [("tab/h/l", "focus"), ("j/k", "scroll"), ("w", "webcast"), ("n", "news"), ("f", "flight plan"), ("s", "star"), ("r", "refresh"), ("t", "telemetry"), ("?", "help"), ("q", "quit")] {
+    for (k, d) in [
+        ("tab/h/l", "focus"),
+        ("j/k", "scroll"),
+        ("w", "webcast"),
+        ("n", "news"),
+        ("f", "flight plan"),
+        ("s", "star"),
+        ("r", "refresh"),
+        ("t", "telemetry"),
+        ("?", "help"),
+        ("q", "quit"),
+    ] {
         spans.extend(key(k, d));
     }
     let local_left = app.state.budget.remaining(now, app.cfg.max_calls_per_hour);
@@ -1739,10 +1870,8 @@ fn draw_help(f: &mut Frame, app: &App, area: Rect) {
         .collect();
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled("colors: go · tbc · tbd · hold · in flight · success · failure", app.c(DIM))));
-    let legend: Vec<Span> = ["go", "tbc", "tbd", "hold", "flight", "success", "failure"]
-        .iter()
-        .map(|c| Span::styled(format!(" ■ {c} "), app.c(status_color(c))))
-        .collect();
+    let legend: Vec<Span> =
+        ["go", "tbc", "tbd", "hold", "flight", "success", "failure"].iter().map(|c| Span::styled(format!(" ■ {c} "), app.c(status_color(c)))).collect();
     lines.push(Line::from(legend));
     lines.push(Line::from(Span::styled(format!("config: {}", paths::config_file().display()), app.c(DIM))));
     f.render_widget(Paragraph::new(lines).block(app.block("Help", true)), r);
@@ -1767,7 +1896,11 @@ fn draw_news(f: &mut Frame, app: &App, area: Rect) {
                 vec![
                     Line::from(vec![Span::styled(if sel { "▌ " } else { "  " }, app.c(ACCENT)), Span::styled(a.title.clone(), st)]),
                     Line::from(Span::styled(
-                        format!("  {} · {}", a.news_site, a.published_at.map(|t| t.with_timezone(&Local).format("%b %-d %H:%M").to_string()).unwrap_or_default()),
+                        format!(
+                            "  {} · {}",
+                            a.news_site,
+                            a.published_at.map(|t| t.with_timezone(&Local).format("%b %-d %H:%M").to_string()).unwrap_or_default()
+                        ),
                         app.c(DIM),
                     )),
                     if sel { Line::from(Span::styled(format!("  {}", a.summary), app.c(DIM))) } else { Line::raw("") },
@@ -1885,14 +2018,16 @@ pub fn run() -> Result<()> {
     if !app.cfg.telemetry_url.is_empty() {
         let url = app.cfg.telemetry_url.clone();
         let tx = app.tx.clone();
-        std::thread::spawn(move || loop {
-            // Expected JSON: {"altitude": km, "velocity": km/h} (Launch Dashboard-style relay).
-            let v = ureq::get(&url).timeout(std::time::Duration::from_secs(5)).call().ok().and_then(|r| r.into_json::<serde_json::Value>().ok());
-            let p = v.and_then(|v| Some((v["altitude"].as_f64()?, v["velocity"].as_f64()?)));
-            if tx.send(Msg::Telemetry(p)).is_err() {
-                break;
+        std::thread::spawn(move || {
+            loop {
+                // Expected JSON: {"altitude": km, "velocity": km/h} (Launch Dashboard-style relay).
+                let v = ureq::get(&url).timeout(std::time::Duration::from_secs(5)).call().ok().and_then(|r| r.into_json::<serde_json::Value>().ok());
+                let p = v.and_then(|v| Some((v["altitude"].as_f64()?, v["velocity"].as_f64()?)));
+                if tx.send(Msg::Telemetry(p)).is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
             }
-            std::thread::sleep(std::time::Duration::from_secs(2));
         });
     }
 
@@ -1975,12 +2110,42 @@ mod tests {
         cfg.spacex_flight_plans = false; // no network in tests
         cfg.tui.mission_patch = false;
         let mut app = App {
-            cfg, cache, state: State::default(), mtime: None, table: TableState::default(), overlay: Overlay::None,
-            news_sel: 0, news: Default::default(), news_loading: None, telemetry: vec![], toast: None,
-            tick: 0, list_area: Rect::default(), tx, rx, fetching: false, no_color: false, reduced_motion: true, quit: false,
-            patches: Default::default(), patch_loading: Default::default(), plans: Default::default(), plan_loading: Default::default(),
-            details_scroll: 0, side: SidePane::FlightPlan, focus: Pane::List, visible: vec![], details_max: 0, plan_scroll: None,
-            plan_max: 0, plan_auto: 0, test: None, chord: None, sel_id: None, nudge: Default::default(), orig_nets: Default::default(),
+            cfg,
+            cache,
+            state: State::default(),
+            mtime: None,
+            table: TableState::default(),
+            overlay: Overlay::None,
+            news_sel: 0,
+            news: Default::default(),
+            news_loading: None,
+            telemetry: vec![],
+            toast: None,
+            tick: 0,
+            list_area: Rect::default(),
+            tx,
+            rx,
+            fetching: false,
+            no_color: false,
+            reduced_motion: true,
+            quit: false,
+            patches: Default::default(),
+            patch_loading: Default::default(),
+            plans: Default::default(),
+            plan_loading: Default::default(),
+            details_scroll: 0,
+            side: SidePane::FlightPlan,
+            focus: Pane::List,
+            visible: vec![],
+            details_max: 0,
+            plan_scroll: None,
+            plan_max: 0,
+            plan_auto: 0,
+            test: None,
+            chord: None,
+            sel_id: None,
+            nudge: Default::default(),
+            orig_nets: Default::default(),
         };
         app.cache.launches.iter_mut().for_each(sanitize);
         app.table.select(Some(1));
@@ -2018,7 +2183,12 @@ mod tests {
             draw_frame(&mut term, &mut None, |f| draw(f, &mut app)).unwrap();
             let buf = term.backend().buffer().clone();
             let mut out = String::new();
-            for y in 0..h { for x in 0..w { out.push_str(buf[(x, y)].symbol()); } out.push('\n'); }
+            for y in 0..h {
+                for x in 0..w {
+                    out.push_str(buf[(x, y)].symbol());
+                }
+                out.push('\n');
+            }
             std::fs::write(format!("/tmp/tui-{w}x{h}.txt"), out).unwrap();
         }
     }
@@ -2246,7 +2416,9 @@ mod tests {
         key(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Pane::Details);
         assert!(app.details_max > 0, "details should overflow at this size");
-        for _ in 0..500 { key(&mut app, KeyCode::Char('j')); }
+        for _ in 0..500 {
+            key(&mut app, KeyCode::Char('j'));
+        }
         assert_eq!(app.details_scroll, app.details_max);
         assert_eq!(app.table.selected(), Some(0), "j scrolls details, not the list");
         key(&mut app, KeyCode::Char('g'));

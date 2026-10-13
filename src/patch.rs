@@ -1,8 +1,8 @@
 //! Mission patch → half-block ("▀") art. Works in every truecolor terminal
 //! (no kitty/sixel needed); transparent pixels stay transparent.
 use crate::config::paths;
-use anyhow::{anyhow, Result};
-use image::{imageops::FilterType, RgbaImage};
+use anyhow::{Result, anyhow};
+use image::{RgbaImage, imageops::FilterType};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use std::io::Read;

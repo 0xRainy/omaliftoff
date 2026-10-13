@@ -4,7 +4,7 @@
 //! is only allowed if, after making it, every reserved sync still fits in its
 //! own rolling hour window.
 use crate::config::is_starred;
-use crate::model::{status, Launch};
+use crate::model::{Launch, status};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -94,7 +94,14 @@ pub fn feasible(calls: &[DateTime<Utc>], planned: &[DateTime<Utc>], max: u32, no
 }
 
 /// Reserved syncs still to do, greedy by launch priority then sync importance.
-pub fn plan(launches: &[Launch], starred: &[String], calls: &[DateTime<Utc>], done: &BTreeMap<String, DateTime<Utc>>, max: u32, now: DateTime<Utc>) -> Vec<Slot> {
+pub fn plan(
+    launches: &[Launch],
+    starred: &[String],
+    calls: &[DateTime<Utc>],
+    done: &BTreeMap<String, DateTime<Utc>>,
+    max: u32,
+    now: DateTime<Utc>,
+) -> Vec<Slot> {
     let mut accepted: Vec<Slot> = vec![];
     // Starred launches claim all their syncs first; the rest share what's left
     // round-robin by importance (every launch's T-5s before anyone's T-60s, ...).
@@ -200,9 +207,7 @@ mod tests {
     #[test]
     fn many_launches_in_one_hour_prioritise_starred_and_t5s() {
         let now = t0();
-        let ls: Vec<Launch> = (0..6)
-            .map(|i| l(&format!("x{i}"), if i == 5 { "SpaceX" } else { "Other" }, now + Duration::minutes(20 + i * 5)))
-            .collect();
+        let ls: Vec<Launch> = (0..6).map(|i| l(&format!("x{i}"), if i == 5 { "SpaceX" } else { "Other" }, now + Duration::minutes(20 + i * 5))).collect();
         let p = plan(&ls, &starred(), &[], &BTreeMap::new(), 14, now);
         assert!(p.len() <= 14);
         // starred launch keeps all four

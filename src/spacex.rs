@@ -9,8 +9,8 @@
 //!            postLaunchTimeline{...}, paragraphs[{content(html)}], webcasts, ... }
 //! It is undocumented: treat every field as optional and fail soft.
 use crate::api::get_json;
-use crate::model::{clean, FlightPlan, Launch, Milestone};
-use anyhow::{anyhow, Result};
+use crate::model::{FlightPlan, Launch, Milestone, clean};
+use anyhow::{Result, anyhow};
 use chrono::{NaiveDate, Utc};
 use serde_json::Value;
 

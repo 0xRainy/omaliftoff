@@ -161,11 +161,7 @@ impl Launch {
     /// Short vehicle label for the bar ("Falcon 9").
     pub fn short_rocket(&self) -> String {
         let r = self.rocket.trim();
-        if r.is_empty() {
-            self.name.split('|').next().unwrap_or("").trim().to_string()
-        } else {
-            r.to_string()
-        }
+        if r.is_empty() { self.name.split('|').next().unwrap_or("").trim().to_string() } else { r.to_string() }
     }
     /// True when the NET is precise enough for a ticking clock.
     pub fn precise(&self) -> bool {
@@ -284,11 +280,7 @@ pub fn next_milestone(events: &[Milestone], t_rel: i64) -> Option<&Milestone> {
 pub fn fmt_rel(secs: i64) -> String {
     let a = secs.abs();
     let sign = if secs < 0 { '-' } else { '+' };
-    if a >= 3600 {
-        format!("T{sign}{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60)
-    } else {
-        format!("T{sign}{:02}:{:02}", a / 60, a % 60)
-    }
+    if a >= 3600 { format!("T{sign}{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60) } else { format!("T{sign}{:02}:{:02}", a / 60, a % 60) }
 }
 
 #[cfg(test)]
@@ -316,7 +308,9 @@ mod tests {
         s.add_skew(9999);
         assert_eq!(s.clock_offset_ms, 2500);
         let mut t = SyncStatus::default();
-        for _ in 0..3 { t.add_skew(600); }
+        for _ in 0..3 {
+            t.add_skew(600);
+        }
         assert_eq!(t.clock_offset_ms, 0, "sub-second skew is within Date resolution");
     }
     #[test]

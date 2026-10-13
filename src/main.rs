@@ -3,8 +3,8 @@ mod cli;
 mod config;
 mod daemon;
 mod model;
-mod notify;
 mod newlaunch;
+mod notify;
 mod nudge;
 mod patch;
 mod planner;
@@ -16,7 +16,7 @@ mod tui;
 
 use anyhow::Result;
 use chrono::Utc;
-use config::{paths, Config};
+use config::{Config, paths};
 
 const HELP: &str = "liftoff — rocket launch tracker
 
@@ -104,12 +104,25 @@ fn main() -> Result<()> {
                 also_covers: vec![],
             };
             let mut n = cfg.notify.clone();
-            if flag("--ntfy") { n.desktop = false; n.ntfy = true; }
-            if flag("--desktop") { n.ntfy = false; n.desktop = true; }
+            if flag("--ntfy") {
+                n.desktop = false;
+                n.ntfy = true;
+            }
+            if flag("--desktop") {
+                n.ntfy = false;
+                n.desktop = true;
+            }
             let errs = notify::send(&n, &a);
             std::thread::sleep(std::time::Duration::from_millis(300));
-            if n.ntfy && n.ntfy_topic.is_empty() { return Err(anyhow::anyhow!("ntfy: no topic configured (liftoff setup)")); }
-            if errs.is_empty() { println!("sent"); Ok(()) } else { Err(anyhow::anyhow!("errors: {errs:?}")) }
+            if n.ntfy && n.ntfy_topic.is_empty() {
+                return Err(anyhow::anyhow!("ntfy: no topic configured (liftoff setup)"));
+            }
+            if errs.is_empty() {
+                println!("sent");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("errors: {errs:?}"))
+            }
         }
         "setup" => cli::setup(),
         "doctor" => cli::doctor(),

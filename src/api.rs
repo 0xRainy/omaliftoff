@@ -1,17 +1,14 @@
 //! HTTP: Launch Library 2 + Spaceflight News API. Parsing is tolerant
 //! (serde_json::Value) so LL2 schema drift doesn't break the bar.
 use crate::config::{Config, NEWS_API};
-use crate::model::{clean, status, Article, Booster, Launch, Milestone, ProviderStats, RocketStats, Throttle};
-use anyhow::{anyhow, Context, Result};
+use crate::model::{Article, Booster, Launch, Milestone, ProviderStats, RocketStats, Throttle, clean, status};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::time::Duration;
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(25))
-        .user_agent(concat!("liftoff/", env!("CARGO_PKG_VERSION"), " (personal launch tracker)"))
-        .build()
+    ureq::AgentBuilder::new().timeout(Duration::from_secs(25)).user_agent(concat!("liftoff/", env!("CARGO_PKG_VERSION"), " (personal launch tracker)")).build()
 }
 
 pub(crate) fn get_json(url: &str, api_key: &str) -> Result<Value> {
@@ -55,11 +52,7 @@ pub fn fetch_launch(cfg: &Config, id: &str) -> Result<(Launch, Option<i64>)> {
 }
 
 pub fn upcoming_url(cfg: &Config) -> String {
-    format!(
-        "{}/launches/upcoming/?format=json&mode=detailed&limit={}&ordering=net",
-        cfg.api_base.trim_end_matches('/'),
-        cfg.upcoming_limit.clamp(1, 100)
-    )
+    format!("{}/launches/upcoming/?format=json&mode=detailed&limit={}&ordering=net", cfg.api_base.trim_end_matches('/'), cfg.upcoming_limit.clamp(1, 100))
 }
 
 /// One LL2 call (counts against the 15/hr budget).
@@ -142,7 +135,13 @@ pub fn iso_duration_secs(d: &str) -> Option<i64> {
 /// "36d 8h" style for turnaround durations.
 pub fn human_duration(secs: i64) -> String {
     let (d, h, m) = (secs / 86400, (secs % 86400) / 3600, (secs % 3600) / 60);
-    if d > 0 { format!("{d}d {h}h") } else if h > 0 { format!("{h}h {m}m") } else { format!("{m}m") }
+    if d > 0 {
+        format!("{d}d {h}h")
+    } else if h > 0 {
+        format!("{h}h {m}m")
+    } else {
+        format!("{m}m")
+    }
 }
 
 fn parse_boosters(r: &Value) -> Vec<Booster> {
@@ -211,19 +210,12 @@ pub fn parse_launch(r: &Value) -> Option<Launch> {
     // Best webcast: prefer live, then lowest priority number (LL2: lower = better? it's "priority"
     // where higher means more important in 2.3.0) — take live first, then highest priority.
     let mut vids: Vec<&Value> = r["vid_urls"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
-    vids.sort_by_key(|x| {
-        (
-            !x["live"].as_bool().unwrap_or(false),
-            -(x["priority"].as_i64().unwrap_or(0)),
-        )
-    });
+    vids.sort_by_key(|x| (!x["live"].as_bool().unwrap_or(false), -(x["priority"].as_i64().unwrap_or(0))));
     let webcast = vids.first().and_then(|x| os(&x["url"]));
     let any_live = vids.iter().any(|x| x["live"].as_bool().unwrap_or(false));
     let mut patches: Vec<&Value> = r["mission_patches"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
     patches.sort_by_key(|x| -(x["priority"].as_i64().unwrap_or(0)));
-    let rocket = os(&r["rocket"]["configuration"]["name"])
-        .or_else(|| os(&r["rocket"]["configuration"]["full_name"]))
-        .unwrap_or_default();
+    let rocket = os(&r["rocket"]["configuration"]["name"]).or_else(|| os(&r["rocket"]["configuration"]["full_name"])).unwrap_or_default();
     let location = s(&r["pad"]["location"]["name"]);
     Some(Launch {
         id: s(&r["id"]),
@@ -246,9 +238,7 @@ pub fn parse_launch(r: &Value) -> Option<Launch> {
         probability: r["probability"].as_i64().filter(|p| *p >= 0),
         weather_concerns: os(&r["weather_concerns"]),
         pad: s(&r["pad"]["name"]),
-        country: os(&r["pad"]["country"]["alpha_3_code"])
-            .or_else(|| os(&r["pad"]["location"]["country"]["alpha_3_code"]))
-            .unwrap_or_default(),
+        country: os(&r["pad"]["country"]["alpha_3_code"]).or_else(|| os(&r["pad"]["location"]["country"]["alpha_3_code"])).unwrap_or_default(),
         location,
         lat: num(&r["pad"]["latitude"]),
         lon: num(&r["pad"]["longitude"]),

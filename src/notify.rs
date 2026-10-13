@@ -1,7 +1,7 @@
 //! Delivery: notify-send (mako) and ntfy.
 use crate::config::NotifyConfig;
 use crate::schedule::Alert;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::process::Command;
 
 /// App name for notify-send and the ntfy title prefix.
@@ -45,12 +45,8 @@ pub fn desktop(a: &Alert) -> Result<()> {
     args.push(a.title.clone());
     args.push(a.body.clone());
     let url = a.url.clone();
-    let mut child = Command::new("notify-send")
-        .args(&args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| anyhow!("{e}"))?;
+    let mut child =
+        Command::new("notify-send").args(&args).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().map_err(|e| anyhow!("{e}"))?;
     std::thread::spawn(move || {
         use std::io::Read;
         let mut out = String::new();
@@ -88,15 +84,11 @@ pub fn ntfy(cfg: &NotifyConfig, a: &Alert) -> Result<()> {
         return Err(anyhow!("ntfy: no topic configured (run `liftoff setup`)"));
     }
     let url = cfg.ntfy_server.trim_end_matches('/').to_string();
-    let mut req = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .post(&url);
+    let mut req = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15)).build().post(&url);
     if !cfg.ntfy_token.trim().is_empty() {
         req = req.set("Authorization", &format!("Bearer {}", cfg.ntfy_token.trim()));
     }
-    req.send_json(ntfy_payload(cfg, a))
-        .map_err(|e| anyhow!("POST {url}: {e}"))?;
+    req.send_json(ntfy_payload(cfg, a)).map_err(|e| anyhow!("POST {url}: {e}"))?;
     Ok(())
 }
 
