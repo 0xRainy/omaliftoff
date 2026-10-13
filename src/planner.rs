@@ -254,7 +254,7 @@ mod tests {
     fn recycled_net_gets_new_syncs() {
         let now = t0();
         let a = l("a", "SpaceX", now + Duration::minutes(10));
-        let s = &plan(&[a.clone()], &starred(), &[], &BTreeMap::new(), 14, now)[0];
+        let s = &plan(std::slice::from_ref(&a), &starred(), &[], &BTreeMap::new(), 14, now)[0];
         let mut done = BTreeMap::new();
         done.insert(s.key(), now);
         let mut b = a.clone();

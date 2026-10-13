@@ -298,6 +298,6 @@ mod tests {
         assert_eq!(strip_html("a <a href=\"x\">X @SpaceX</a>. "), "a X @SpaceX.");
         assert_eq!(short_label("1st stage main engine cutoff (MECO)"), "MECO");
         assert_eq!(short_label("1st and 2nd stages separate"), "Stage sep");
-        assert_eq!(parse_mission(&serde_json::json!({"data":null,"error":{"message":"Not Found"}}), &Tile::default()).is_err(), true);
+        assert!(parse_mission(&serde_json::json!({"data":null,"error":{"message":"Not Found"}}), &Tile::default()).is_err());
     }
 }

@@ -1,3 +1,6 @@
+// collapsible_if (let-chains, Rust 1.88) and manual_is_multiple_of (Rust 1.87) suggest newer APIs;
+// allowed so the crate keeps building on older toolchains.
+#![allow(clippy::collapsible_if, clippy::manual_is_multiple_of)]
 mod api;
 mod cli;
 mod config;

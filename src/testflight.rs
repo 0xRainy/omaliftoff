@@ -303,9 +303,7 @@ mod tests {
     }
     #[test]
     fn never_ntfy() {
-        let mut cfg = crate::config::NotifyConfig::default();
-        cfg.ntfy = true;
-        cfg.ntfy_topic = "real-topic".into();
+        let cfg = crate::config::NotifyConfig { ntfy: true, ntfy_topic: "real-topic".into(), ..Default::default() };
         assert_eq!(channels(&cfg), vec![Channel::Desktop]);
         let a = alert(&events()[9]);
         assert!(a.title.starts_with("TEST"));

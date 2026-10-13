@@ -704,6 +704,9 @@ fn twinkle(x: u16, y: u16, tick: u64) -> Option<char> {
 
 // ------------------------------------------------------------------ draw
 
+/// Draws one side pane (telemetry or flight plan).
+type DrawFn = fn(&mut Frame, &mut App, Rect, DateTime<Utc>);
+
 fn draw(f: &mut Frame, app: &mut App) {
     let now = app.now();
     let area = f.area();
@@ -724,7 +727,7 @@ fn draw(f: &mut Frame, app: &mut App) {
     app.visible.push((Pane::List, left[1]));
     let details_slot = app.visible.len();
     draw_map(f, app, right[0], now);
-    let side: Option<(Pane, fn(&mut Frame, &mut App, Rect, DateTime<Utc>))> = match app.side {
+    let side: Option<(Pane, DrawFn)> = match app.side {
         SidePane::Telemetry => Some((Pane::Telemetry, |f, a, r, _| draw_telemetry(f, a, r))),
         SidePane::FlightPlan => Some((Pane::Plan, draw_plan)),
         SidePane::Hidden => None,
@@ -1461,7 +1464,7 @@ pub fn stagger(items: &[(usize, usize)], rows: usize, width: usize) -> Vec<Optio
         .map(|&(x, w)| {
             let start = x.min(width.saturating_sub(w));
             for (r, u) in used.iter_mut().enumerate() {
-                if u.iter().all(|&(a, b)| start + w + 1 <= a || start >= b + 1) {
+                if u.iter().all(|&(a, b)| start + w < a || start > b) {
                     u.push((start, start + w));
                     return Some((r, start));
                 }
@@ -2106,8 +2109,8 @@ mod tests {
 
     fn test_app(cache: Cache) -> App {
         let (tx, rx) = channel();
-        let mut cfg = Config::default();
-        cfg.spacex_flight_plans = false; // no network in tests
+        // no network in tests
+        let mut cfg = Config { spacex_flight_plans: false, ..Default::default() };
         cfg.tui.mission_patch = false;
         let mut app = App {
             cfg,

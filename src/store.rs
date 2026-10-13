@@ -38,8 +38,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("x/launches.json");
         assert_eq!(load_cache(&p), Cache::default());
-        let mut c = Cache::default();
-        c.source = "test".into();
+        let c = Cache { source: "test".into(), ..Default::default() };
         save_json(&p, &c).unwrap();
         assert_eq!(load_cache(&p).source, "test");
     }
