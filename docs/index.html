@@ -94,6 +94,12 @@ kbd{font:12.5px var(--mono);color:var(--text);border:1px solid var(--rule2);bord
 .rv{opacity:0;transform:translateY(16px);transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.2,1)}.rv.in{opacity:1;transform:none}
 footer{position:relative;z-index:1;max-width:1124px;margin:70px auto 0;color:var(--sec);font-size:12.5px;border-top:1px solid var(--goldA);padding:18px 0 40px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 footer .sp{margin-left:auto}
+#lb{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;background:rgba(10,12,16,.92);padding:24px;cursor:zoom-out}
+#lb.on{display:flex}#lb img{max-width:100%;max-height:100%;width:auto;height:auto;border:1px solid var(--border);border-radius:2px;cursor:default;background:#0e1116}
+#lb .x{position:absolute;top:12px;right:14px;font:500 11px var(--font);letter-spacing:.2em;text-transform:uppercase;color:var(--text);background:var(--card);border:1px solid var(--goldA);border-radius:2px;padding:7px 12px;cursor:pointer}
+#lb .cap{position:absolute;left:0;right:0;bottom:8px;text-align:center;color:var(--sec);font-size:12.5px;padding:0 16px}
+.zoom{cursor:zoom-in}.zoom:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+body.lbopen{overflow:hidden}
 @media (max-width:980px){.clock{font-size:40px!important}.hero .ct{padding:30px 22px}.head nav{gap:12px}.hero .ct{grid-template-columns:1fr;padding:30px}h1{font-size:38px}.clock{font-size:46px}.grid3,.two,.gal{grid-template-columns:1fr}nav{margin-left:0;width:100%;gap:16px}.kt td:first-child{white-space:normal;width:48%}.keys .ct{padding:22px}}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important;scroll-behavior:auto!important}
 .rv{opacity:1;transform:none}.bd rect{stroke-dashoffset:0}.frame>.cn{opacity:1}.divider .dl{transform:none}.divider .dc{opacity:1}
@@ -206,6 +212,7 @@ footer .sp{margin-left:auto}
  </section>
 </main>
 <footer><span>OmaLiftoff · MIT licensed · © OmaLiftoff contributors</span><span class="sp">Built with Oma, a Grok Bot assistant</span></footer>
+<div id="lb" role="dialog" aria-modal="true" aria-label="Screenshot, full size" aria-hidden="true"><button class="x" type="button">Close ✕</button><img alt=""><div class="cap"></div></div>
 <script>
 (function(){"use strict";
 var RM=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -268,6 +275,14 @@ function fmt(ms){var s=Math.round(Math.abs(ms)/1000),sg=ms>0?'T-':'T+';return sg
 function tick(){var d=t0-Date.now();if(d<-180000){t0=Date.now()+900000;d=900000}var s=fmt(d);ck.textContent=s;pl.textContent=s}
 tick();if(!RM)setInterval(tick,1000);
 $$('.copy').forEach(function(b){b.addEventListener('click',function(){var t=b.dataset.copy;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied'},function(){b.textContent='Select + copy'});setTimeout(function(){b.textContent='Copy'},1600)})});
+/* lightbox: click/Enter/Space opens full size, Esc/click outside/Close closes, focus returns */
+var lb=$('#lb'),lbi=lb.querySelector('img'),lbc=lb.querySelector('.cap'),lbx=lb.querySelector('.x'),lbFrom=null;
+function lbOpen(im){lbFrom=im;lbi.src=im.currentSrc||im.src;lbi.alt=im.alt;lbc.textContent=im.alt;lb.classList.add('on');lb.setAttribute('aria-hidden','false');document.body.classList.add('lbopen');lbx.focus()}
+function lbClose(){if(!lb.classList.contains('on'))return;lb.classList.remove('on');lb.setAttribute('aria-hidden','true');document.body.classList.remove('lbopen');lbi.removeAttribute('src');if(lbFrom)lbFrom.focus()}
+$$('main img').forEach(function(im){im.classList.add('zoom');im.tabIndex=0;im.setAttribute('role','button');im.setAttribute('aria-label','Open full size: '+im.alt);
+ im.addEventListener('click',function(){lbOpen(im)});im.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();lbOpen(im)}})});
+lb.addEventListener('click',function(e){if(e.target!==lbi)lbClose()});
+document.addEventListener('keydown',function(e){if(!lb.classList.contains('on'))return;if(e.key==='Escape'){e.preventDefault();lbClose()}else if(e.key==='Tab'){e.preventDefault();lbx.focus()}});
 function fire(s){s.classList.add('in');$$('.frame',s).forEach(function(f){f.classList.add('in')});if(s.classList.contains('frame'))s.classList.add('in')}
 var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){fire(e.target);io.unobserve(e.target)}})},{threshold:.08}):null;
 $$('.rv,.divider').forEach(function(r){if(io&&!RM)io.observe(r);else fire(r)});setTimeout(function(){$$('.rv,.divider').forEach(fire)},5000);

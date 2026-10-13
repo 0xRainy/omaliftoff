@@ -238,6 +238,7 @@ builds release tarballs for x86_64 and aarch64 Linux. The project site lives in 
 ```bash
 cargo test                          # countdown / scheduling / dedupe / parsing tests
 node omarchy-plugin/tests/model.test.js
+node omarchy-plugin/tests/widget.test.js
 LIFTOFF_API=dev cargo run -- tui
 ```
 

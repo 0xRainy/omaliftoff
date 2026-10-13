@@ -20,6 +20,7 @@ Thanks for helping! OmaLiftoff is two parts that ship from this one repo:
 ```bash
 cargo test --locked                       # Rust unit tests
 node omarchy-plugin/tests/model.test.js   # widget model tests
+node omarchy-plugin/tests/widget.test.js  # BarWidget.qml static checks
 shellcheck install.sh
 LIFTOFF_API=dev cargo run -- tui          # lldev endpoint: no rate limit, stale data
 ```

@@ -114,4 +114,20 @@ const tst = M.liveStage(mc, mc.launches[0], now);
 assert.strictEqual(tst.current.label, "MECO");
 assert.strictEqual(M.barText(mc.launches[0], now, true, tst.current.label), "Test Flight · MECO · T+00:02:31");
 assert.strictEqual(M.iconState(mc.launches[0], now, "MECO"), "live");
+// countdown matches the TUI rule (same table as schedule.rs countdown_rule_matches_bar)
+{
+  const n = Date.parse("2026-10-13T12:00:00Z");
+  for (const [off, want] of [[8534700, "T-02:22:15"], [8534000, "T-02:22:14"], [1999, "T-00:00:02"], [1000, "T-00:00:01"],
+    [999, "T-00:00:01"], [1, "T-00:00:01"], [0, "T-00:00:00"], [-1, "T-00:00:00"], [-999, "T-00:00:00"],
+    [-1000, "T+00:00:01"], [-1001, "T+00:00:01"], [-312400, "T+00:05:12"]]) {
+    assert.strictEqual(M.countdown(new Date(n + off).toISOString(), n), want, "net = now + " + off + " ms");
+  }
+  assert.strictEqual(M.msToNextSecond(n + 250), 755);
+  assert.strictEqual(M.msToNextSecond(n), 1005);
+  assert.strictEqual(M.msToNextSecond(n, { sync: { clock_offset_ms: 2947 } }), 58);   // corrected clock at .947
+  // bar (applyClock) and TUI (now + offset) agree with a skew applied
+  const sk = { launches: [L({ id: "s", net: new Date(n + 60000).toISOString() })], sync: { clock_offset_ms: 2947 } };
+  assert.strictEqual(M.countdown(M.applyClock(sk, null).launches[0].net, n), "T-00:00:58");
+
+}
 console.log("model.test.js: all assertions passed");

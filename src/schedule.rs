@@ -9,8 +9,21 @@ use std::collections::BTreeMap;
 // ---------------------------------------------------------------- countdown
 
 /// "T-02:14:07", "T-3d 04h", "T+00:05:12".
+/// Whole seconds since T-0, floored (negative before launch). This is the one
+/// countdown rule shared with the bar (Model.js `relSecs`): the display flips
+/// exactly on whole-second boundaries of (now - net), T-1 lasts until T-0.
+pub fn rel_secs(net: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
+    (now - net).num_milliseconds().div_euclid(1000)
+}
+
+/// Milliseconds until just after the next whole second of `now` (pass the
+/// skew-corrected clock); same as Model.js `msToNextSecond`.
+pub fn ms_to_next_second(now: DateTime<Utc>) -> u64 {
+    1000 - now.timestamp_millis().rem_euclid(1000) as u64 + 5
+}
+
 pub fn format_countdown(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
-    let secs = (net - now).num_seconds();
+    let secs = -rel_secs(net, now);
     let (sign, s) = if secs >= 0 { ('-', secs) } else { ('+', -secs) };
     let (d, h, m, sec) = (s / 86400, (s % 86400) / 3600, (s % 3600) / 60, s % 60);
     if d > 0 {
@@ -404,6 +417,25 @@ mod tests {
         assert_eq!(format_countdown(n + Duration::hours(76), n), "T-3d 04h");
         assert_eq!(format_countdown(n - Duration::seconds(312), n), "T+00:05:12");
         assert_eq!(format_countdown(n, n), "T-00:00:00");
+    }
+
+    /// Same instants and expected strings as omarchy-plugin/tests/model.test.js
+    /// ("countdown matches the TUI rule"); keep the two tables identical.
+    #[test]
+    fn countdown_rule_matches_bar() {
+        let n = t0();
+        let ms = |v: i64| n + Duration::milliseconds(v);
+        for (off_ms, want) in [
+            (8_534_700i64, "T-02:22:15"), (8_534_000, "T-02:22:14"), (1_999, "T-00:00:02"), (1_000, "T-00:00:01"),
+            (999, "T-00:00:01"), (1, "T-00:00:01"), (0, "T-00:00:00"), (-1, "T-00:00:00"), (-999, "T-00:00:00"),
+            (-1_000, "T+00:00:01"), (-1_001, "T+00:00:01"), (-312_400, "T+00:05:12"),
+        ] {
+            assert_eq!(format_countdown(ms(off_ms), n), want, "net = now + {off_ms} ms");
+        }
+        // with the daemon's clock offset applied to now (TUI) == applied to net (bar)
+        assert_eq!(format_countdown(n + Duration::seconds(60), n + Duration::milliseconds(2947)), "T-00:00:58");
+        assert_eq!(ms_to_next_second(n + Duration::milliseconds(2947)), 58);
+        assert_eq!(ms_to_next_second(n), 1005);
     }
 
     #[test]

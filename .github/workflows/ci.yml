@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: 20
       - run: node omarchy-plugin/tests/model.test.js
+      - run: node omarchy-plugin/tests/widget.test.js
       - run: shellcheck install.sh
 
   release:

@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1 (unreleased)
+
+Fixes.
+
+- **Bar stuck on "set up OmaLiftoff" after install**: the widget could not watch a cache file that did not
+  exist yet. While setup is pending it now re-checks for the cache every 3 s, so the bar switches to the
+  countdown as soon as the daemon's first fetch lands (no shell restart needed).
+- **TUI scrambled in very large windows** (a maximized 4K Ghostty, e.g. 540x129 = 69,660 cells): ratatui
+  0.29 computes cell positions with 16-bit math, so everything past cell 65,535 was drawn at the wrong
+  place (bottom panes on the top rows). The TUI now sends frames with its own diff that handles any size.
+- **Bar and TUI countdowns could differ by a second**: the bar rounded the remaining seconds while the TUI
+  truncated them, and the bar ticked at a random phase. Both now use one rule (whole seconds since T-0,
+  floored, after the same clock-skew and T-0 nudge corrections), and both wake right after each whole
+  second of the skew-corrected clock, so they flip together. (With a measured skew of ~3 s the bar used to
+  tick on local seconds and trail the TUI by almost a full second.)
+- **Site**: the screenshot lightbox (click or Enter to enlarge) was missing from the published page.
+
+## 0.1.0 (2026-10-13)
 
 First public release.
 

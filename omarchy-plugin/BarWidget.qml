@@ -139,6 +139,16 @@ BarWidget {
     }
   }
 
+  // A FileView can't watch a file that doesn't exist yet, so while setup is pending
+  // poll for the cache the daemon writes on its first fetch.
+  Timer {
+    id: setupPoll
+    interval: 3000
+    repeat: true
+    running: root.needsSetup
+    onTriggered: cacheFile.reload()
+  }
+
   FileView {
     id: nudgeFile
     path: root.nudgePath
@@ -159,13 +169,21 @@ BarWidget {
     onLoadFailed: root.testMarker = null
   }
 
-  // 1 Hz is plenty; in live mode the label also pulses.
+  // 1 Hz, re-armed just after each whole second so the countdown flips together
+  // with the TUI (both floor whole seconds since T-0; see Model.relSecs).
   Timer {
-    interval: 1000
+    id: clockTick
+    // Seconds flip on the skew-corrected clock (the cache's clock_offset_ms), like the TUI.
+    interval: Model.msToNextSecond(Date.now(), root.rawCache)
     running: true
-    repeat: true
+    repeat: false
     triggeredOnStart: true
-    onTriggered: { root.nowMs = Date.now(); testFile.reload() }
+    onTriggered: {
+      root.nowMs = Date.now()
+      testFile.reload()
+      interval = Model.msToNextSecond(Date.now(), root.rawCache)
+      restart()
+    }
   }
   Timer {
     id: offsetReset

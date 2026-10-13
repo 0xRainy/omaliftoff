@@ -827,7 +827,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
 }
 
 fn short_countdown(l: &Launch, now: DateTime<Utc>) -> String {
-    let secs = (l.net - now).num_seconds();
+    let secs = -schedule::rel_secs(l.net, now);
     if !l.precise() && secs.abs() > 3600 {
         return l.net.with_timezone(&Local).format("%b %-d").to_string();
     }
@@ -1123,7 +1123,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
     }
     // countdown to milestones
     let (ms, src) = milestone_source(app, &l);
-    let t_rel = (now - l.net).num_seconds();
+    let t_rel = schedule::rel_secs(l.net, now);
     if !ms.is_empty() {
         lines.push(head(&format!("Milestones ({src})")));
         let start = crate::model::current_milestone(ms, t_rel).unwrap_or(0);
@@ -1276,7 +1276,7 @@ fn draw_plan(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
         return;
     }
-    let t_rel = (now - l.net).num_seconds();
+    let t_rel = schedule::rel_secs(l.net, now);
     let live = l.precise() && t_rel > events.first().map(|e| e.offset_secs).unwrap_or(0) - 3600 && t_rel < events.last().map(|e| e.offset_secs).unwrap_or(0) + 1800;
     let cur = if live { crate::model::current_milestone(&events, t_rel) } else { None };
     lines.push(Line::from(vec![
@@ -1788,6 +1788,55 @@ fn draw_news(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------------ loop
 
+/// Cell updates between two frames with correct coordinates for any size.
+///
+/// ratatui 0.29's `Buffer::diff` maps a cell index to (x, y) through `i as u16`, so on
+/// terminals with more than 65,535 cells (e.g. 540x129, a maximized 4K Ghostty) every
+/// cell past that index is sent to the wrong place: the bottom panes land on the top
+/// rows and the frame scrambles. Same algorithm as ratatui (incl. wide-char handling),
+/// with usize index math.
+fn frame_diff<'a>(prev: &ratatui::buffer::Buffer, next: &'a ratatui::buffer::Buffer) -> Vec<(u16, u16, &'a ratatui::buffer::Cell)> {
+    use unicode_width::UnicodeWidthStr;
+    let a = next.area;
+    let w = a.width.max(1) as usize;
+    let mut out = vec![];
+    let (mut invalidated, mut to_skip) = (0usize, 0usize);
+    for (i, (cur, old)) in next.content.iter().zip(prev.content.iter()).enumerate() {
+        if !cur.skip && (cur != old || invalidated > 0) && to_skip == 0 {
+            out.push((a.x + (i % w) as u16, a.y + (i / w) as u16, cur));
+        }
+        to_skip = cur.symbol().width().saturating_sub(1);
+        invalidated = cur.symbol().width().max(old.symbol().width()).max(invalidated).saturating_sub(1);
+    }
+    out
+}
+
+/// `Terminal::draw` with our own diff (see `frame_diff`); `prev` is the last frame sent.
+fn draw_frame<B: ratatui::backend::Backend>(
+    term: &mut ratatui::Terminal<B>,
+    prev: &mut Option<ratatui::buffer::Buffer>,
+    render: impl FnOnce(&mut Frame),
+) -> std::io::Result<()> {
+    let before = term.size()?;
+    term.autoresize()?; // clears the screen on resize
+    if term.size()? != before {
+        *prev = None;
+    }
+    render(&mut term.get_frame());
+    let next = term.current_buffer_mut().clone();
+    let base = match prev.take() {
+        Some(b) if b.area == next.area => b,
+        _ => ratatui::buffer::Buffer::empty(next.area),
+    };
+    let updates = frame_diff(&base, &next);
+    term.backend_mut().draw(updates.into_iter())?;
+    term.hide_cursor()?; // the TUI never places a cursor
+    term.swap_buffers();
+    ratatui::backend::Backend::flush(term.backend_mut())?;
+    *prev = Some(next);
+    Ok(())
+}
+
 pub fn run() -> Result<()> {
     let cfg = Config::load()?;
     let (tx, rx) = channel();
@@ -1850,13 +1899,16 @@ pub fn run() -> Result<()> {
     let mut terminal = ratatui::init();
     crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture)?;
     let mut last_reload = Instant::now();
+    let mut prev_frame: Option<ratatui::buffer::Buffer> = None;
     let res = (|| -> Result<()> {
         while !app.quit {
             app.update_test(Utc::now());
-            terminal.draw(|f| draw(f, &mut app))?;
+            draw_frame(&mut terminal, &mut prev_frame, |f| draw(f, &mut app))?;
             // faster frames while a mission timeline is animating
             let live = app.test.is_some() || app.launches().iter().any(|l| l.status_id == crate::model::status::IN_FLIGHT);
-            if event::poll(std::time::Duration::from_millis(if live { 60 } else { 125 }))? {
+            // wake right after each whole (corrected) second so the countdown flips on time, with the bar
+            let frame_ms = if live { 60 } else { 125 };
+            if event::poll(std::time::Duration::from_millis(frame_ms.min(schedule::ms_to_next_second(app.now()))))? {
                 match event::read()? {
                     Event::Key(k) => app.on_key(k),
                     Event::Mouse(m) => app.on_mouse(m),
@@ -1933,6 +1985,42 @@ mod tests {
         app.cache.launches.iter_mut().for_each(sanitize);
         app.table.select(Some(1));
         app
+    }
+
+    /// Regression: >65,535 cells (maximized 4K Ghostty, 540x129) scrambled the frame.
+    #[test]
+    fn huge_terminal_frame_lands_where_rendered() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/upcoming.json")).unwrap();
+        for (w, h) in [(120u16, 40u16), (200, 50), (320, 80), (400, 100), (540, 129), (600, 160)] {
+            let mut app = test_app(Cache { launches: api::parse_upcoming(&v).unwrap(), ..Default::default() });
+            let mut term = ratatui::Terminal::new(TestBackend::new(w, h)).unwrap();
+            let mut prev = None;
+            for _ in 0..3 {
+                draw_frame(&mut term, &mut prev, |f| draw(f, &mut app)).unwrap();
+                app.tick += 1;
+            }
+            // what reached the "screen" equals what was rendered, cell for cell
+            let shown = term.backend().buffer().clone();
+            let row = |b: &ratatui::buffer::Buffer, y: u16| (0..w).map(|x| b[(x, y)].symbol().to_string()).collect::<String>();
+            assert!(row(&shown, 0).starts_with("╭ Next Launch"), "{w}x{h}: top row {:?}", &row(&shown, 0)[..40]);
+            assert!(row(&shown, h - 8).starts_with("╭ Timeline"), "{w}x{h}: timeline row");
+            assert!(row(&shown, h - 1).starts_with(" tab/h/l focus"), "{w}x{h}: footer");
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn dump_sizes() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/upcoming.json")).unwrap();
+        for (w, h) in [(120u16, 40u16), (200, 50), (320, 80), (400, 100), (540, 129)] {
+            let mut app = test_app(Cache { launches: api::parse_upcoming(&v).unwrap(), ..Default::default() });
+            let mut term = ratatui::Terminal::new(TestBackend::new(w, h)).unwrap();
+            draw_frame(&mut term, &mut None, |f| draw(f, &mut app)).unwrap();
+            let buf = term.backend().buffer().clone();
+            let mut out = String::new();
+            for y in 0..h { for x in 0..w { out.push_str(buf[(x, y)].symbol()); } out.push('\n'); }
+            std::fs::write(format!("/tmp/tui-{w}x{h}.txt"), out).unwrap();
+        }
     }
 
     #[test]

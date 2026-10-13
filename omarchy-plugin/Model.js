@@ -81,8 +81,22 @@ function upcomingWithTest(cache, nowMs, opts) {
 
 function pad2(n) { return (n < 10 ? "0" : "") + n; }
 
+// Whole seconds since T-0, floored (negative before launch). Same rule as the TUI
+// (schedule.rs rel_secs), so bar and TUI show the same second at the same instant.
+function relSecs(netIso, nowMs) {
+  return Math.floor((nowMs - Date.parse(netIso)) / 1000);
+}
+
+// Delay until just after the next whole second of the skew-corrected clock
+// (local + cache.sync.clock_offset_ms, as the TUI uses), so 1 Hz ticks flip with it.
+function msToNextSecond(nowMs, cache) {
+  var off = cache && cache.sync && cache.sync.clock_offset_ms ? cache.sync.clock_offset_ms : 0;
+  var t = nowMs + off;
+  return 1000 - (((t % 1000) + 1000) % 1000) + 5;
+}
+
 function countdown(netIso, nowMs) {
-  var s = Math.round((Date.parse(netIso) - nowMs) / 1000);
+  var s = -relSecs(netIso, nowMs);
   var sign = s >= 0 ? "-" : "+";
   s = Math.abs(s);
   var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -169,7 +183,7 @@ function nextMilestone(cache, l, nowMs) {
   if (!l) return null;
   var plan = cache && cache.flight_plans ? cache.flight_plans[l.id] : null;
   var ev = plan && plan.events && plan.events.length ? plan.events : (l.milestones || []);
-  var tRel = Math.floor((nowMs - Date.parse(l.net)) / 1000);
+  var tRel = relSecs(l.net, nowMs);
   for (var i = 0; i < ev.length; i++) {
     if (ev[i].offset_secs > tRel) {
       var e = ev[i];
@@ -215,7 +229,7 @@ function eventsFor(cache, l) {
 function liveStage(cache, l, nowMs) {
   var ev = eventsFor(cache, l);
   if (!l || !ev.length) return null;
-  var tRel = Math.floor((nowMs - Date.parse(l.net)) / 1000);
+  var tRel = relSecs(l.net, nowMs);
   var last = ev[ev.length - 1].offset_secs;
   var inFlight = l.status_id === 6;
   if (!inFlight && !(PRECISE[l.net_precision || ""] && tRel >= -600 && tRel <= last + 60)) return null;
@@ -262,6 +276,6 @@ function hidden(l, nowMs, hideBeyondDays) {
 
 // Node test hook (ignored by QML).
 if (typeof module !== "undefined") module.exports = {
-  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, displayCountdown: displayCountdown,
+  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown,
   barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
 };
