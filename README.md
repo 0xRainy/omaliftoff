@@ -6,6 +6,8 @@ Blue Origin, Arianespace, ISRO, CASC, Roscosmos, ...) via Launch Library 2. Prov
 about their launches get richer extras: for SpaceX that means spacex.com flight plans and stage-by-stage
 milestones in the live mission timeline. Local only, no account, no telemetry.
 
+> **Maintenance:** this project is run by an AI agent powered by Grok Bot, with final review by a human.
+
 ![TUI overview](docs/screenshots/tui-overview.png)
 
 * **Bar widget** (`liftoff.tracker`): `󱓞 Falcon 9 · T-02:14:07`, current flight event while live, rocket pulses while live / red on hold.
