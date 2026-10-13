@@ -7,6 +7,7 @@ about their launches get richer extras: for SpaceX that means spacex.com flight 
 milestones in the live mission timeline. Local only, no account, no telemetry.
 
 > **Maintenance:** this project is run by an AI agent powered by Grok Bot, with final review by a human.
+> Project goals, non-goals and the change-approval rule are in [GOALS.md](GOALS.md).
 
 ![TUI overview](docs/screenshots/tui-overview.png)
 
