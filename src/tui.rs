@@ -794,7 +794,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     ]));
     lines.push(Line::from(Span::styled(format!("{} · {}", l.provider, l.pad), app.c(DIM))));
     lines.push(Line::raw(""));
-    let blink = !app.reduced_motion && (now - l.net).num_hours().abs() < 1 && app.tick % 4 >= 2;
+    let blink = !app.reduced_motion && l.precise() && (now - l.net).num_hours().abs() < 1 && app.tick % 4 >= 2;
     let big = big_text(&cd, blink);
     let big_w = big[0].chars().count() as u16;
     let mut style = app.c(col).add_modifier(Modifier::BOLD);
@@ -959,7 +959,7 @@ fn draw_map(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     }
     // group upcoming launches by pad
     let mut pads: Vec<(f64, f64, String, usize, String, bool)> = vec![]; // lon, lat, pad, count, status, selected
-    for l in app.launches().iter().filter(|l| l.net > now - Duration::hours(2)) {
+    for l in app.launches().iter().filter(|l| !l.expired(now - Duration::minutes(90))) {
         let (Some(lon), Some(lat)) = (l.lon, l.lat) else { continue };
         let is_sel = sel.as_ref().is_some_and(|s| s.id == l.id);
         match pads.iter_mut().find(|p| (p.0 - lon).abs() < 0.05 && (p.1 - lat).abs() < 0.05) {

@@ -34,6 +34,35 @@ function matchesProvider(l, list) {
   return list.indexOf(n) !== -1 || (a && list.indexOf(a) !== -1);
 }
 
+// THE "is this launch over?" rule (mirrors Launch::current_until / expired in model.rs; see the
+// LL2 evidence there). Exact/hour NETs: NET + 30 min. Day and coarser NETs are calendar labels
+// (00:00 UTC of a day in the period): current through the end of the labelled UTC period, with
+// quarter/half taken from the code. Unverified encodings: WK +7 days, FY end of calendar year,
+// DEC end of decade, unknown end of day. Cases shared with Rust: tests/fixtures/expiry_cases.json.
+function currentUntilMs(l) {
+  var t = Date.parse(l.net), p = l.net_precision || "";
+  if (isNaN(t)) return NaN;
+  var d = new Date(t), y = d.getUTCFullYear(), m = d.getUTCMonth(); // m 0-based
+  var dayEnd = Date.UTC(y, m, d.getUTCDate() + 1);
+  var after = function (yy, m1) { return Date.UTC(yy, m1, 1); }; // first instant after 1-based month m1
+  var end;
+  switch (precisionKind(p)) {
+    case "exact": case "hour": return t + 30 * 60 * 1000;
+    case "week": end = dayEnd + 6 * 86400000; break;
+    case "month": end = after(y, m + 1); break;
+    case "quarter": end = after(y, (p.length === 2 ? Number(p[1]) : Math.floor(m / 3) + 1) * 3); break;
+    case "half": end = after(y, Number(p[1]) * 6); break;
+    case "year": case "fy": end = Date.UTC(y + 1, 0, 1); break;
+    case "decade": end = Date.UTC(Math.floor(y / 10) * 10 + 10, 0, 1); break;
+    default: end = dayEnd; // day, AM/PM, unknown
+  }
+  return Math.max(end, dayEnd);
+}
+
+function expired(l, nowMs) {
+  return l.status_id !== 6 && nowMs >= currentUntilMs(l);
+}
+
 // Launches worth counting down to, soonest first.
 function upcoming(cache, nowMs, opts) {
   opts = opts || {};
@@ -43,7 +72,7 @@ function upcoming(cache, nowMs, opts) {
     if (FINISHED[l.status_id]) return false;
     var t = Date.parse(l.net);
     if (isNaN(t)) return false;
-    if (l.status_id !== 6 && t < nowMs - 30 * 60 * 1000) return false;
+    if (expired(l, nowMs)) return false;
     if (!matchesProvider(l, filter)) return false;
     if (opts.starredOnly && !matchesProvider(l, starred)) return false;
     return true;
@@ -192,7 +221,7 @@ function iconState(l, nowMs, stage) {
   if (cls === "failure" || l.status_id === 4 || l.status_id === 7) return "bad";
   var t = Date.parse(l.net);
   var live = !!stage || l.status_id === 6 || !!l.webcast_live ||
-    (t <= nowMs && t > nowMs - 3 * 3600000 && cls !== "success");
+    (!!PRECISE[l.net_precision || ""] && t <= nowMs && t > nowMs - 3 * 3600000 && cls !== "success");
   if (live) return "live";
   if (cls === "hold" || l.status_id === 5) return "bad";
   return "normal";
@@ -213,6 +242,7 @@ function showText(textMode, region, vertical) {
 function isLive(l, nowMs, windowMinutes) {
   if (!l) return false;
   if (l.status_id === 6 || l.webcast_live) return true;
+  if (!PRECISE[l.net_precision || ""]) return false; // a calendar label has no T-0
   var dt = Date.parse(l.net) - nowMs;
   return dt <= (windowMinutes || 60) * 60000 && dt > -30 * 60000;
 }
@@ -329,6 +359,6 @@ function expandHome(p, home) {
 
 // Node test hook (ignored by QML).
 if (typeof module !== "undefined") module.exports = {
-  MAX_FILE_BYTES: MAX_FILE_BYTES, tooBig: tooBig, oversizedCache: oversizedCache, expandHome: expandHome, parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
+  MAX_FILE_BYTES: MAX_FILE_BYTES, tooBig: tooBig, oversizedCache: oversizedCache, expandHome: expandHome, parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, currentUntilMs: currentUntilMs, expired: expired, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
   barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
 };

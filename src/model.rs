@@ -187,6 +187,46 @@ impl Launch {
         if self.precise() { self.net.with_timezone(&Local).date_naive() } else { self.net.date_naive() }
     }
 
+    /// THE only "is this launch over?" rule (status line, bar, TUI, refresh pacing). Returns the
+    /// earliest instant at which the NET can be in the past.
+    ///
+    /// Exact/hour NETs are instants: current until NET + 30 min (unchanged). Day and coarser NETs
+    /// are calendar *labels* (see [`Launch::net_date`]): LL2 stores them as 00:00 UTC of a day in
+    /// the period, so the NET instant says nothing about when the launch is late. Such a launch
+    /// stays current through the end of its labelled UTC period:
+    /// DAY/AM/PM -> end of that UTC day; M -> end of the month; Q1-Q4/H1/H2 -> end of the quarter/
+    /// half *named by the code* (LL2 2.3.0 lldev upcoming, 2026-10-14, 178 launches: Q1 nets on
+    /// 01-31 and 02-28 as well as 03-31, so the date alone would end Q1 early); Y -> end of year.
+    /// Unverified encodings (no LL2 sample) are kept current longest: WK -> 7 days after the
+    /// date, FY -> end of that calendar year (US FY samples sit at 06-30), DEC -> end of decade,
+    /// unknown codes -> end of the day.
+    pub fn current_until(&self) -> DateTime<Utc> {
+        use Precision as P;
+        let d = self.net.date_naive();
+        let start = |y: i32, m: u32| NaiveDate::from_ymd_opt(y, m, 1).map(|n| n.and_hms_opt(0, 0, 0).unwrap().and_utc());
+        // first instant of the month after (y, m)
+        let after = |y: i32, m: u32| if m >= 12 { start(y + 1, 1) } else { start(y, m + 1) };
+        let day_end = (d + chrono::Duration::days(1)).and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let end = match self.precision() {
+            P::Exact | P::Hour => return self.net + chrono::Duration::minutes(30),
+            P::Day | P::Morning | P::Afternoon | P::Unknown => Some(day_end),
+            P::Week => Some(day_end + chrono::Duration::days(6)),
+            P::Month => after(d.year(), d.month()),
+            P::Quarter(0) => after(d.year(), ((d.month() - 1) / 3 + 1) * 3),
+            P::Quarter(q) => after(d.year(), u32::from(q) * 3),
+            P::Half(h) => after(d.year(), u32::from(h) * 6),
+            P::Year | P::FiscalYear => start(d.year() + 1, 1),
+            P::Decade => start(d.year() / 10 * 10 + 10, 1),
+        };
+        // never earlier than the NET itself (e.g. a Q1 code on a date in May)
+        end.unwrap_or(day_end).max(day_end)
+    }
+
+    /// Past its [`Launch::current_until`] and not in flight.
+    pub fn expired(&self, now: DateTime<Utc>) -> bool {
+        self.status_id != status::IN_FLIGHT && now >= self.current_until()
+    }
+
     /// THE only place a NET becomes text (alerts, TUI, bar, status). Converts to local time
     /// only for exact/hour precision; day and coarser use LL2's UTC calendar fields.
     pub fn net_text(&self, f: NetFmt) -> String {
@@ -509,5 +549,34 @@ mod net_text_tests {
         assert_eq!(l.net_date(), t.date_naive());
         let h = Launch { net, net_precision: "HR".into(), ..Default::default() };
         assert!(h.net_text(NetFmt::Clock).ends_with("±1h"));
+    }
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::*;
+
+    /// Shared with omarchy-plugin/tests/model.test.js (same rule in Rust and the widget).
+    #[test]
+    fn coarse_nets_stay_current_through_their_labelled_period() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/expiry_cases.json")).unwrap();
+        for c in v["cases"].as_array().unwrap() {
+            let l = Launch {
+                net: c["net"].as_str().unwrap().parse().unwrap(),
+                net_precision: c["p"].as_str().unwrap().into(),
+                status_id: c["status_id"].as_i64().unwrap_or(1),
+                ..Default::default()
+            };
+            let now: DateTime<Utc> = c["now"].as_str().unwrap().parse().unwrap();
+            // through the public choke point only, so this test also runs against pre-fix code
+            assert_eq!(crate::schedule::next_launch(std::slice::from_ref(&l), now).is_none(), c["expired"].as_bool().unwrap(), "{c}");
+        }
+    }
+
+    #[test]
+    fn coarse_nets_do_not_speed_up_refresh() {
+        let l = Launch { net: "2026-10-14T00:00:00Z".parse().unwrap(), net_precision: "DAY".into(), status_id: 1, ..Default::default() };
+        let now: DateTime<Utc> = "2026-10-14T00:05:00Z".parse().unwrap();
+        assert_eq!(crate::schedule::refresh_interval(std::slice::from_ref(&l), now), chrono::Duration::minutes(10));
     }
 }

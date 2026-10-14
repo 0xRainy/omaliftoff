@@ -75,14 +75,10 @@ pub fn human_lead(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
     }
 }
 
-/// The next launch that is still worth counting down to (not finished, and
-/// not more than `grace` past its NET unless it is in flight).
+/// The next launch that is still worth counting down to: not finished and not
+/// [`Launch::expired`] (the precision-aware "is it over?" rule).
 pub fn next_launch(launches: &[Launch], now: DateTime<Utc>) -> Option<&Launch> {
-    launches
-        .iter()
-        .filter(|l| !status::is_finished(l.status_id))
-        .filter(|l| l.status_id == status::IN_FLIGHT || l.net > now - Duration::minutes(30))
-        .min_by_key(|l| l.net)
+    launches.iter().filter(|l| !status::is_finished(l.status_id)).filter(|l| !l.expired(now)).min_by_key(|l| l.net)
 }
 
 // ---------------------------------------------------------------- refresh
@@ -92,6 +88,10 @@ pub fn refresh_interval(launches: &[Launch], now: DateTime<Utc>) -> Duration {
     let Some(l) = next_launch(launches, now) else {
         return Duration::minutes(10);
     };
+    if !l.precise() && l.status_id != status::IN_FLIGHT {
+        // a calendar-label NET has no T-0 to speed up for (00:00 UTC is not a launch time)
+        return Duration::minutes(10);
+    }
     let lead = l.net - now;
     if l.status_id == status::IN_FLIGHT || lead <= Duration::minutes(15) {
         Duration::minutes(4)

@@ -170,3 +170,16 @@ assert.strictEqual(M.expandHome("${HOME}/bin/x", "/home/u"), "/home/u/bin/x");
 assert.strictEqual(M.expandHome("~/x y/liftoff", "/home/u"), "/home/u/x y/liftoff");
 assert.strictEqual(M.expandHome("/opt/liftoff; rm -rf ~", "/home/u"), "/opt/liftoff; rm -rf ~");
 console.log("model.test.js: bounded-read + expandHome assertions passed");
+
+// B1: one expiry rule, cases shared with src/model.rs (tests/fixtures/expiry_cases.json)
+const EX = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "tests", "fixtures", "expiry_cases.json"), "utf8"));
+const wrong = EX.cases.filter((c) => {
+  const l = L({ net: c.net, net_precision: c.p, status_id: c.status_id || 1 });
+  return (M.upcoming({ launches: [l] }, Date.parse(c.now)).length === 0) !== c.expired;
+});
+assert.deepStrictEqual(wrong, [], "expiry rule disagrees with tests/fixtures/expiry_cases.json:\n" + wrong.map((c) => JSON.stringify(c)).join("\n"));
+// a calendar label has no T-0: never "live" / pulsing at 00:00 UTC
+const dayL = L({ net: "2026-10-14T00:00:00Z", net_precision: "DAY" });
+assert.strictEqual(M.isLive(dayL, Date.parse("2026-10-13T23:30:00Z"), 60), false);
+assert.strictEqual(M.iconState(dayL, Date.parse("2026-10-14T01:00:00Z")), "normal");
+console.log("model.test.js: expiry assertions passed (" + EX.cases.length + " shared cases)");
