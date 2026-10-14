@@ -10,6 +10,16 @@
   this machine with other users, consider picking a new topic (`liftoff setup`).
 - `config.toml` is now created owner-only (0600) and replaced atomically, instead of being
   written and chmodded afterwards.
+- A config file with a syntax error no longer has its offending line quoted in error messages
+  (`test-notify`, `alerts`, `status`; terminal and journal). That line could be the ntfy topic or
+  token. Errors now give the line and column only.
+- The bar widget and panel render every launch, pad, weather and error string as plain text.
+  With Qt's default text format, a launch name like `<img src=http://…>` from the API was
+  rendered as HTML and the image was fetched.
+- The widget's files (cache, nudge, test marker) are size-checked (2 MiB) before parsing, and
+  `liftoff refresh` is run as an argv array, not through a shell with the unquoted
+  `liftoffBinary` setting.
+- CI actions are pinned to commit SHAs.
 
 Fixes.
 
@@ -30,6 +40,9 @@ Fixes.
 - The panel's NET line no longer shows a fake time plus the raw precision code.
 - The setup wizard's ntfy subscribe hint is simpler: "Subscribe in the ntfy app using topic: '<topic>'"
   (plus a QR code); for a custom server it also names the server to add in the app.
+- When the setup wizard's test push fails, it now says why (e.g. "Connection refused",
+  "status code 401").
+- README: `curl` is only used by the installer's prebuilt download, not for ntfy.
 
 ## 0.1.4 (2026-10-13)
 
