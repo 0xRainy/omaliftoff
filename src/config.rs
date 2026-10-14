@@ -148,14 +148,8 @@ impl Config {
              # api_base: {PROD_API} (15 req/hr free) or {DEV_API} (dev, stale data)\n{}",
             toml::to_string_pretty(self)?
         );
-        std::fs::write(path, body)?;
-        // may hold an ntfy token
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-        }
-        Ok(())
+        // holds secrets (ntfy topic/token, api_key): owner-only from creation, atomic
+        crate::store::write_private(path, body.as_bytes())
     }
 
     pub fn save(&self) -> Result<()> {

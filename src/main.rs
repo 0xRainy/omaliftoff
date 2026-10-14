@@ -34,6 +34,7 @@ USAGE: liftoff <command>
   setup           (re)run the notification wizard
   doctor          check service, cache, API budget, plugin, ntfy
   config get|set <key> [value]   read/edit config.toml (dotted keys)
+  config set-secret <key>        set notify.ntfy_topic/ntfy_token/api_key from stdin
   paths           print config/cache/state paths
 Env: LIFTOFF_API=dev|prod|<url> overrides api_base.";
 

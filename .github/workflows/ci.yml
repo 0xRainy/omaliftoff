@@ -31,7 +31,12 @@ jobs:
           node-version: 20
       - run: node omarchy-plugin/tests/model.test.js
       - run: node omarchy-plugin/tests/widget.test.js
-      - run: shellcheck install.sh
+      - run: shellcheck install.sh tests/secret-leak.sh
+      - name: secrets never reach argv/env/logs (installer under strace)
+        run: |
+          sudo apt-get update && sudo apt-get install -y strace
+          cargo build
+          bash tests/secret-leak.sh target/debug/liftoff
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

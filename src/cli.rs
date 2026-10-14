@@ -40,24 +40,48 @@ pub fn get_key(cfg: &Config, key: &str) -> Result<String> {
     })
 }
 
+/// Config keys whose values are secrets. They can only be set through stdin
+/// (`config set-secret`): a command-line argument is visible to every local user
+/// via /proc/<pid>/cmdline and `ps`.
+pub const SECRET_KEYS: &[&str] = &["notify.ntfy_topic", "notify.ntfy_token", "api_key"];
+
+pub fn is_secret_key(key: &str) -> bool {
+    SECRET_KEYS.contains(&key)
+}
+
+/// The single way to set a secret: value comes from `input` (stdin), one line, stored as
+/// a TOML string. Never echoes the value.
+pub fn set_secret(cfg: &Config, key: &str, mut input: impl std::io::BufRead) -> Result<Config> {
+    if !is_secret_key(key) {
+        return Err(anyhow!("{key} is not a secret; use `liftoff config set {key} <value>`"));
+    }
+    let mut b = String::new();
+    input.read_line(&mut b)?;
+    let v = b.trim_end_matches(['\n', '\r']).trim();
+    let s = toml::Value::String(v.to_string()).to_string();
+    set_key(cfg, key, &s)
+}
+
 pub fn config_cmd(args: &[String]) -> Result<()> {
     let cfg = Config::load()?;
     match (args.first().map(String::as_str), args.get(1), args.get(2)) {
         (Some("get"), Some(k), _) => println!("{}", get_key(&cfg, k)?),
+        (Some("set-secret"), Some(k), None) => {
+            set_secret(&cfg, k, std::io::stdin().lock())?.save()?;
+            println!("{k} updated (restart: systemctl --user restart liftoff)");
+        }
+        // the value already sits in our argv, so refuse rather than silently accept it
+        (Some("set"), Some(k), Some(_)) if is_secret_key(k) => {
+            return Err(anyhow!(
+                "{k} is a secret: pipe it on stdin instead, e.g. `liftoff config set-secret {k} < file` (command-line arguments are visible to other users)"
+            ));
+        }
         (Some("set"), Some(k), Some(v)) => {
-            // "-" reads the value from stdin (keeps tokens out of the process list)
-            let v = if v == "-" {
-                let mut b = String::new();
-                std::io::stdin().read_line(&mut b)?;
-                format!("{:?}", b.trim())
-            } else {
-                v.clone()
-            };
-            set_key(&cfg, k, &v)?.save()?;
+            set_key(&cfg, k, v)?.save()?;
             println!("{k} updated (restart: systemctl --user restart liftoff)");
         }
         (Some("path"), _, _) => println!("{}", paths::config_file().display()),
-        _ => return Err(anyhow!("usage: liftoff config get <key> | set <key> <value> | path")),
+        _ => return Err(anyhow!("usage: liftoff config get <key> | set <key> <value> | set-secret <key> (value on stdin) | path")),
     }
     Ok(())
 }
@@ -199,6 +223,29 @@ pub fn doctor() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_only_via_stdin() {
+        let c = Config::default();
+        let c = set_secret(&c, "notify.ntfy_topic", &b"liftoff-sentinel\n"[..]).unwrap();
+        assert_eq!(c.notify.ntfy_topic, "liftoff-sentinel");
+        // quotes/backslashes/TOML syntax are stored literally, not parsed
+        let c = set_secret(&c, "notify.ntfy_token", &br#"tk_"a\b = [1]"#[..]).unwrap();
+        assert_eq!(c.notify.ntfy_token, r#"tk_"a\b = [1]"#);
+        let c = set_secret(&c, "api_key", &b"k\r\n"[..]).unwrap();
+        assert_eq!(c.api_key, "k");
+        assert!(set_secret(&c, "notify.desktop", &b"true\n"[..]).is_err(), "non-secret via set-secret");
+        for k in SECRET_KEYS {
+            assert!(is_secret_key(k));
+            assert!(get_key(&c, k).is_ok(), "{k} must be a real config key");
+        }
+    }
+
+    #[test]
+    fn config_set_refuses_secret_in_argv() {
+        let e = config_cmd(&["set".into(), "notify.ntfy_topic".into(), "liftoff-sentinel".into()]).unwrap_err().to_string();
+        assert!(e.contains("set-secret") && !e.contains("liftoff-sentinel"), "{e}");
+    }
     #[test]
     fn set_and_get_keys() {
         let c = Config::default();

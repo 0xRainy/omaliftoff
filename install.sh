@@ -207,6 +207,10 @@ install_plugin() {
     || info "place it later: omarchy bar move $PLUGIN_ID --section $sec"
 }
 
+# Secrets (ntfy topic, token) never go into a command's arguments: other local users can read
+# every process's argv via /proc. They travel in shell variables, reach liftoff on stdin
+# (`config set-secret`) and are shown to the user only by the printf builtin.
+set_secret() { printf '%s\n' "$2" | "$BIN" config set-secret "$1" >/dev/null; }
 random_topic() { printf 'liftoff-%s' "$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"; }
 
 notify_wizard() {
@@ -226,7 +230,10 @@ notify_wizard() {
     *) "$BIN" config set notify.new_launch_alerts true >/dev/null; "$BIN" config set notify.new_launch_scope all >/dev/null ;;
   esac
 
-  if [[ $cur_on == true && -n $cur_topic ]] && ask_yn "Phone push is set up (topic $cur_topic). Keep it?" y; then return; fi
+  if [[ $cur_on == true && -n $cur_topic ]]; then
+    info "Phone push is set up (topic $cur_topic)."
+    if ask_yn "Keep the current phone push settings?" y; then return; fi
+  fi
   echo
   info "Phone push uses ntfy (https://ntfy.sh): a free, open-source push service. Install the app:"
   info "  Android: https://play.google.com/store/apps/details?id=io.heckel.ntfy"
@@ -243,18 +250,23 @@ notify_wizard() {
     info "name is the only protection, so don't share it."
   else
     server=$(ask "Server URL" "https://ntfy.sh"); server=${server%/}
-    topic=$(ask "Topic" "$(random_topic)")
+    # no default shown: a pre-filled value would be passed to gum as an argument
+    topic=$(ask "Topic (empty = random private name)" "")
+    [[ -n $topic ]] || topic=$(random_topic)
     token=$(ask "Access token (empty for none)" "" --password)
   fi
-  [[ $topic =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die "invalid topic name: $topic"
+  [[ $topic =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die "invalid topic name (letters, digits, - and _; up to 64)"
+  # the server URL is not secret, but must not smuggle credentials (user:pass@host) into argv
+  [[ $server =~ ^https?://[^/@[:space:]]+(/[^@[:space:]]*)?$ ]] || die "invalid server URL (http(s)://host[/path], no user:password@)"
   "$BIN" config set notify.ntfy_server "$server" >/dev/null
-  "$BIN" config set notify.ntfy_topic "$topic" >/dev/null
-  printf '%s\n' "$token" | "$BIN" config set notify.ntfy_token - >/dev/null   # config.toml is chmod 600
+  set_secret notify.ntfy_topic "$topic"
+  set_secret notify.ntfy_token "$token"
   "$BIN" config set notify.ntfy true >/dev/null
   echo
   info "Subscribe in the ntfy app: + → topic '$topic'$([[ $server != https://ntfy.sh ]] && echo " on server $server")"
   info "or scan / open: $server/$topic"
-  if have qrencode; then qrencode -t ansiutf8 "$server/$topic"; else info "(install qrencode to get a QR code here)"; fi
+  # URL on stdin, not as an argument
+  if have qrencode; then printf '%s' "$server/$topic" | qrencode -t ansiutf8; else info "(install qrencode to get a QR code here)"; fi
   ask_yn "Subscribed? Send a test push now?" y || return 0
   while :; do
     if "$BIN" test-notify --ntfy >/dev/null 2>&1; then ok "test push sent"; else warn "sending failed ($server)"; fi

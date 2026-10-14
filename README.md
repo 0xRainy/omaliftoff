@@ -123,7 +123,8 @@ into the plugins folder (dev install).
 | `liftoff test-notify [--desktop\|--ntfy]` | send a sample notification |
 | `liftoff setup` | re-run the notification / starred-provider wizard |
 | `liftoff doctor` | check service, cache age, API budget, plugin, ntfy, clock |
-| `liftoff config get\|set <key> [value]` | read/edit `config.toml` with dotted keys (`notify.ntfy_topic`) |
+| `liftoff config get\|set <key> [value]` | read/edit `config.toml` with dotted keys (`notify.desktop`) |
+| `liftoff config set-secret <key>` | set a secret (`notify.ntfy_topic`, `notify.ntfy_token`, `api_key`) from stdin, so it never appears in the process list: `liftoff config set-secret notify.ntfy_token < token.txt` |
 | `LIFTOFF_API=dev liftoff fetch` | use lldev (no rate limit, stale data) |
 
 ## Refresh & rate limits
