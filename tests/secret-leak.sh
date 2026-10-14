@@ -84,6 +84,7 @@ run keep
 # notify-send + ntfy push), status, alerts. A recording notify-send/xdg-open stand-in captures
 # their argv too. Then the same with a broken config line holding the topic: parse errors
 # (shown on the terminal and, from the daemon, in the journal) must not quote it.
+# shellcheck disable=SC2016  # the shim body is literal on purpose; only the log path is substituted
 for c in notify-send xdg-open; do printf '#!/bin/sh\nprintf "%%s\\n" "$0" "$@" >> %q\n' "$W/desktop.argv" > "$W/shim/$c"; chmod +x "$W/shim/$c"; done
 cmds() {  # $1 = label
   local c
