@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.5 (2026-10-14)
+
+**Security**
+- The installer no longer passes your private ntfy topic as a command argument (to
+  `liftoff config set`, `qrencode` and a `gum` prompt), where any local user could read it
+  from the process list. Secrets now go through `liftoff config set-secret <key>` on stdin;
+  `config set` refuses `notify.ntfy_topic`, `notify.ntfy_token` and `api_key`. If you share
+  this machine with other users, consider picking a new topic (`liftoff setup`).
+- `config.toml` is now created owner-only (0600) and replaced atomically, instead of being
+  written and chmodded afterwards.
+
+Fixes.
+
+- **No T-10 alert and no reserved syncs for hour-precision launches**: LL2 often keeps NOTAM-window
+  launches (e.g. Zhuque-2E) at net_precision "HR" until after liftoff. The planner only reserved
+  final syncs for SEC/MIN, and lead alerts at T-30 or sooner required minute precision, so those
+  launches got neither a T-10 alert nor T-5m/T-60s/T-5s/T+90s syncs — while the 4-minute routine
+  refresh near T-0 burned the whole hourly budget. HR launches now get reserved syncs and
+  approximate lead alerts ("~T-10m", "Liftoff in ~10m (~04:40 ±1h)").
+- **Coarse NETs showed fake or shifted dates**: LL2 sends Q1–Q4, WK, AM, PM, FY and DEC, but OmaLiftoff only
+  knew made-up codes ("Q", "W", ...), so e.g. a Q4 launch read "NET ~Dec 30". And because day-and-coarser
+  NETs (calendar labels LL2 stores as a 00:00 UTC timestamp) were converted to local time like instants,
+  dates shifted by a day depending on your time zone (LL2's Nov 7 read "Nov 6" in Phoenix). All NET text
+  now comes from one formatter (daemon/TUI and widget): local time only for minute/hour precision, LL2's
+  calendar date for everything coarser, identical in every time zone. Coarse NETs never show a countdown.
+  AM/PM, week, fiscal-year and decade NETs are shown as approximate ("~") since LL2 data doesn't confirm
+  their encoding.
+- The panel's NET line no longer shows a fake time plus the raw precision code.
+
 ## 0.1.4 (2026-10-13)
 
 Fixes.

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "liftoff.tracker",
   "name": "OmaLiftoff",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": "OmaLiftoff contributors",
   "license": "MIT",
   "description": "Next rocket launch in your Omarchy bar: countdown, live flight events and a launch popup. Needs the OmaLiftoff companion (daemon + TUI, installed by the bundled install.sh); the widget itself only reads its local cache.",
