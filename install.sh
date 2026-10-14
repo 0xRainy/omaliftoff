@@ -273,7 +273,13 @@ notify_wizard() {
   if have qrencode; then printf '%s' "$server/$topic" | qrencode -t ansiutf8; else info "(install qrencode to get a QR code here)"; fi
   ask_yn "Subscribed? Send a test push now?" y || return 0
   while :; do
-    if "$BIN" test-notify --ntfy >/dev/null 2>&1; then ok "test push sent"; else warn "sending failed ($server)"; fi
+    local why
+    if why=$("$BIN" test-notify --ntfy 2>&1 >/dev/null); then ok "test push sent"; else
+      # show the reason (e.g. connection refused, 401/403); liftoff's errors name only the server,
+      # but redact the secrets anyway in case a future error quotes them (bash expansion, no argv)
+      why=${why//"$topic"/<topic>}; [[ -z $token ]] || why=${why//"$token"/<token>}
+      why=${why%\"]}; warn "sending failed ($server): ${why##*: }"
+    fi
     ask_yn "Did it arrive on your phone?" y && { ok "phone push configured"; break; }
     ask_yn "Try again?" y || { warn "kept the settings; check with 'liftoff doctor'"; break; }
   done
