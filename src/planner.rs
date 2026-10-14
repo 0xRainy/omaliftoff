@@ -67,12 +67,14 @@ impl Slot {
     }
 }
 
-/// Launches that get final syncs: precise NET, not finished, inside the planning
-/// horizon. Starred providers first, then soonest.
+/// Launches that get final syncs: NET known to the minute or hour, not finished, inside
+/// the planning horizon. Hour precision is included: LL2 often dates NOTAM-window launches
+/// "HR" right up to liftoff, and without reserved syncs the routine refresh burns the whole
+/// budget around T-0 instead. Starred providers first, then soonest.
 pub fn targets<'a>(launches: &'a [Launch], starred: &[String], now: DateTime<Utc>) -> Vec<&'a Launch> {
     let mut v: Vec<&Launch> = launches
         .iter()
-        .filter(|l| !status::is_finished(l.status_id) && matches!(l.net_precision.as_str(), "SEC" | "MIN" | ""))
+        .filter(|l| !status::is_finished(l.status_id) && matches!(l.net_precision.as_str(), "SEC" | "MIN" | "HR" | ""))
         .filter(|l| l.net > now - Duration::minutes(7) && l.net < now + Duration::minutes(75))
         .collect();
     v.sort_by_key(|l| (!is_starred(starred, &l.provider, &l.provider_abbrev), l.net));
@@ -230,6 +232,15 @@ mod tests {
         // only one call left in the window ending at T-5s -> that's the one kept
         assert_eq!(p.iter().filter(|s| s.at < now + Duration::minutes(10)).map(|s| s.kind).next(), Some(SyncKind::TMinus5s));
         assert!(!allowed_now(&calls, &p, 14, now), "manual refresh denied");
+    }
+
+    #[test]
+    fn hour_precision_launch_gets_reserved_syncs() {
+        let now = t0();
+        let mut a = l("a", "LandSpace", now + Duration::minutes(30));
+        a.net_precision = "HR".into();
+        let p = plan(&[a], &starred(), &[], &BTreeMap::new(), 14, now);
+        assert_eq!(p.len(), 4, "{p:?}");
     }
 
     #[test]

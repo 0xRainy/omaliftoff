@@ -58,7 +58,12 @@ pub fn coarse_lead(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
 
 /// NET (local time) and lead text for alerts, at the precision LL2 knows.
 fn alert_when(l: &Launch, now: DateTime<Utc>, long: bool) -> (String, String) {
-    if l.precise() {
+    if l.net_precision == "HR" {
+        let f = if long { "%a %b %-d ~%H:%M" } else { "~%H:%M" };
+        let lead = human_lead(l.net, now);
+        let lead = lead.strip_prefix("in ").map(|x| format!("in ~{x}")).unwrap_or(lead);
+        (format!("{} ±1h", l.net.with_timezone(&Local).format(f)), lead)
+    } else if l.precise() {
         let f = if long { "%a %b %-d %H:%M" } else { "%H:%M" };
         (l.net.with_timezone(&Local).format(f).to_string(), human_lead(l.net, now))
     } else {
@@ -241,8 +246,11 @@ fn precision_ok(prec: &str, minutes: i64) -> bool {
         "HALF" | "TOD" | "DAY" => 2,
         _ => 3,
     };
+    // Hour precision still gets the short lead alerts (worded "~"): LL2 keeps many
+    // NOTAM-window launches at "HR" until after liftoff, so requiring minute
+    // precision meant no T-10 alert at all for them.
     match minutes {
-        m if m <= 30 => rank == 0,
+        m if m <= 30 => rank <= 1,
         m if m <= 180 => rank <= 1,
         _ => rank <= 2,
     }
@@ -354,7 +362,8 @@ pub fn plan_alerts(launches: &[Launch], cfg: &NotifyConfig, starred: &[String], 
             out[i].also_covers.push(key);
             continue;
         }
-        let label = if m >= 60 && m % 60 == 0 { format!("T-{}h", m / 60) } else { format!("T-{m}m") };
+        let approx = if l.net_precision == "HR" { "~" } else { "" };
+        let label = if m >= 60 && m % 60 == 0 { format!("{approx}T-{}h", m / 60) } else { format!("{approx}T-{m}m") };
         out.push(Alert {
             key,
             launch_id: l.id.clone(),
@@ -521,6 +530,21 @@ mod tests {
         let a = plan_alerts(std::slice::from_ref(&l), &NotifyConfig::default(), &["SpaceX".into()], t0(), &State::default());
         let hm = l.net.with_timezone(&Local).format("%H:%M").to_string();
         assert_eq!(a[0].body.split('.').next().unwrap(), format!("Liftoff in 50m ({hm})"));
+    }
+
+    #[test]
+    fn hour_precision_gets_t10_worded_approximately() {
+        let mut l = launch("zq", "LandSpace", t0() + Duration::minutes(9));
+        l.net_precision = "HR".into();
+        let a = plan_alerts(std::slice::from_ref(&l), &NotifyConfig::default(), &["SpaceX".into()], t0(), &State::default());
+        assert_eq!(a.len(), 1, "T-10 for a non-starred HR launch");
+        assert_eq!(a[0].key, "zq:lead:10");
+        assert!(a[0].title.starts_with("🚀 ~T-10m"), "{}", a[0].title);
+        let hm = l.net.with_timezone(&Local).format("%H:%M").to_string();
+        assert!(a[0].body.starts_with(&format!("Liftoff in ~9m (~{hm} ±1h).")), "{}", a[0].body);
+        // day precision still never gets minute alerts
+        l.net_precision = "DAY".into();
+        assert!(plan_alerts(&[l], &NotifyConfig::default(), &[], t0(), &State::default()).is_empty());
     }
 
     #[test]
