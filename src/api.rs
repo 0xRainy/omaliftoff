@@ -28,14 +28,33 @@ pub(crate) fn get_json_timed(url: &str, api_key: &str) -> Result<(Value, Option<
         Ok(r) => {
             let t_recv = Utc::now();
             let skew = r.header("Date").and_then(|d| skew_ms(d, t_send, t_recv));
-            Ok((r.into_json()?, skew))
+            Ok((r.into_json().map_err(|e| anyhow!("reading response: {e} (GET {url})"))?, skew))
         }
         Err(ureq::Error::Status(429, r)) => {
             let body = r.into_string().unwrap_or_default();
             Err(anyhow!("rate limited (429): {}", body.chars().take(200).collect::<String>()))
         }
-        Err(e) => Err(anyhow!("GET {url}: {e}")),
+        Err(e) => Err(http_error("GET", url, e)),
     }
+}
+
+/// The one place ureq errors are wrapped: reason first, then the request once. ureq's own
+/// Display already starts with the URL, so `"GET {url}: {e}"` printed it twice.
+pub(crate) fn http_error(method: &str, url: &str, e: ureq::Error) -> anyhow::Error {
+    let reason = match &e {
+        ureq::Error::Status(code, _) => format!("status code {code}"),
+        ureq::Error::Transport(t) => {
+            let mut r = t.kind().to_string();
+            if let Some(m) = t.message() {
+                r = format!("{r}: {m}");
+            }
+            if let Some(src) = std::error::Error::source(t) {
+                r = format!("{r}: {src}");
+            }
+            r
+        }
+    };
+    anyhow!("{reason} ({method} {url})")
 }
 
 pub fn skew_ms(date_header: &str, t_send: DateTime<Utc>, t_recv: DateTime<Utc>) -> Option<i64> {

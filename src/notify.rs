@@ -88,7 +88,7 @@ pub fn ntfy(cfg: &NotifyConfig, a: &Alert) -> Result<()> {
     if !cfg.ntfy_token.trim().is_empty() {
         req = req.set("Authorization", &format!("Bearer {}", cfg.ntfy_token.trim()));
     }
-    req.send_json(ntfy_payload(cfg, a)).map_err(|e| anyhow!("POST {url}: {e}"))?;
+    req.send_json(ntfy_payload(cfg, a)).map_err(|e| crate::api::http_error("POST", &url, e))?;
     Ok(())
 }
 
