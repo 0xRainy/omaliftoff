@@ -263,7 +263,11 @@ notify_wizard() {
   set_secret notify.ntfy_token "$token"
   "$BIN" config set notify.ntfy true >/dev/null
   echo
-  info "Subscribe in the ntfy app: + → topic '$topic'$([[ $server != https://ntfy.sh ]] && echo " on server $server")"
+  if [[ $server == https://ntfy.sh ]]; then
+    info "Subscribe in the ntfy app using topic: '$topic'"
+  else
+    info "In the ntfy app, add the server $server, then subscribe using topic: '$topic'"
+  fi
   info "or scan / open: $server/$topic"
   # URL on stdin, not as an argument
   if have qrencode; then printf '%s' "$server/$topic" | qrencode -t ansiutf8; else info "(install qrencode to get a QR code here)"; fi

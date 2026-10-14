@@ -28,6 +28,8 @@ Fixes.
   AM/PM, week, fiscal-year and decade NETs are shown as approximate ("~") since LL2 data doesn't confirm
   their encoding.
 - The panel's NET line no longer shows a fake time plus the raw precision code.
+- The setup wizard's ntfy subscribe hint is simpler: "Subscribe in the ntfy app using topic: '<topic>'"
+  (plus a QR code); for a custom server it also names the server to add in the app.
 
 ## 0.1.4 (2026-10-13)
 
