@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 (2026-10-13)
+
+Fixes.
+
+- **"New launch added" alerts showed a fake time plus "(year)"** for launches LL2 only knows to the year
+  (or month/quarter). The alert now shows just the known precision, e.g. "NET 2026", "NET Dec 2026",
+  "NET Q4 2026".
+
 ## 0.1.2 (2026-10-13)
 
 Fixes.
