@@ -157,3 +157,16 @@ console.log("model.test.js: all assertions passed");
   assert.strictEqual(M.displayCountdown(l, Date.parse(c[1]) - 600000), "NET " + c[3], c[0] + " near");
 });
 assert.ok(M.netText(L({ net_precision: "HR" }), "clock").endsWith("±1h"));
+// 0.1.5: bounded reads and home expansion for the binary path
+assert.strictEqual(M.MAX_FILE_BYTES, 2 * 1024 * 1024);
+assert.ok(!M.tooBig(150000) && M.tooBig(M.MAX_FILE_BYTES + 1) && M.tooBig(NaN));
+const huge = '{"launches":[' + " ".repeat(M.MAX_FILE_BYTES) + "]}";
+assert.match(M.parseCache(huge).error, /too large/);
+assert.deepStrictEqual(M.parseCache(huge).launches, []);
+assert.strictEqual(M.parseNudge(huge).launches, undefined);
+assert.strictEqual(M.parseTest(huge), null);
+assert.strictEqual(M.expandHome("$HOME/.local/bin/liftoff", "/home/u"), "/home/u/.local/bin/liftoff");
+assert.strictEqual(M.expandHome("${HOME}/bin/x", "/home/u"), "/home/u/bin/x");
+assert.strictEqual(M.expandHome("~/x y/liftoff", "/home/u"), "/home/u/x y/liftoff");
+assert.strictEqual(M.expandHome("/opt/liftoff; rm -rf ~", "/home/u"), "/opt/liftoff; rm -rf ~");
+console.log("model.test.js: bounded-read + expandHome assertions passed");

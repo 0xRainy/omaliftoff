@@ -34,6 +34,8 @@ BarWidget {
   }
   readonly property bool showText: Model.showText(textMode, region, root.vertical)
   readonly property string liftoffBinary: setting("liftoffBinary", "$HOME/.local/bin/liftoff")
+  // the setting with $HOME/~ expanded here, so commands get it as one argv element (no shell parsing)
+  readonly property string liftoffPath: Model.expandHome(liftoffBinary, Quickshell.env("HOME"))
   readonly property string terminalCommand: setting("terminalCommand", "omarchy-launch-or-focus-tui")
   readonly property string cachePath: {
     var p = setting("cachePath", "")
@@ -75,7 +77,7 @@ BarWidget {
 
   // ---- actions
   function refresh() {
-    if (bar) bar.run(liftoffBinary + " refresh")
+    Quickshell.execDetached([liftoffPath, "refresh"])
     cacheFile.reload()
   }
   function openWebcast(l) {
@@ -91,7 +93,7 @@ BarWidget {
   }
 
   function openTui() {
-    if (bar) bar.run(terminalCommand + " " + Util.shellQuote(liftoffBinary + " tui"))
+    if (bar) bar.run(terminalCommand + " " + Util.shellQuote(Util.shellQuote(liftoffPath) + " tui"))
   }
   function cycle(step) {
     if (!launches.length) return
@@ -132,7 +134,12 @@ BarWidget {
     watchChanges: true
     preload: true
     onFileChanged: reload()
-    onLoaded: { root.needsSetup = false; root.rawCache = Model.parseCache(text()) }
+    onLoaded: {
+      root.needsSetup = false
+      // check the size before decoding/parsing (FileView itself has no read limit)
+      var d = data()
+      root.rawCache = Model.tooBig(d ? d.byteLength : 0) ? Model.oversizedCache() : Model.parseCache(text())
+    }
     onLoadFailed: {
       root.needsSetup = true
       root.rawCache = ({ launches: [], starred: [], error: "OmaLiftoff companion not installed (or liftoff.service has not fetched yet).\nClick to run the installer from this plugin's folder." })

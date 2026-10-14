@@ -12,3 +12,9 @@ const ct = block("clockTick");
 assert.match(ct, /Model\.msToNextSecond/);
 assert.match(ct, /restart\(\)/);
 console.log("widget.test.js: all assertions passed");
+// 0.1.5: no shell for refresh; the binary path is one argv element; cache size checked before parsing
+assert.ok(!/bar\.run\(liftoffBinary/.test(q), "liftoffBinary passed through a shell unquoted");
+assert.match(q, /Quickshell\.execDetached\(\[liftoffPath, "refresh"\]\)/);
+assert.match(q, /Util\.shellQuote\(Util\.shellQuote\(liftoffPath\) \+ " tui"\)/);
+assert.match(q, /Model\.tooBig\(d \? d\.byteLength : 0\)/);
+console.log("widget.test.js: argv/bounded-read assertions passed");

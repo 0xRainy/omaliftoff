@@ -5,7 +5,15 @@
 var FINISHED = { 3: true, 4: true, 7: true, 9: true };
 var PRECISE = { "SEC": true, "MIN": true, "HR": true, "": true };
 
+// Upper bound for the files the widget reads (cache, nudge, test marker). The daemon's cache is
+// ~150 KB for 40 launches; anything far larger is not ours and is not parsed.
+var MAX_FILE_BYTES = 2 * 1024 * 1024;
+function tooBig(n) { return !(n >= 0 && n <= MAX_FILE_BYTES); }
+
+function oversizedCache() { return { launches: [], starred: [], error: "cache file too large (over 2 MiB); not read" }; }
+
 function parseCache(text) {
+  if (text && tooBig(text.length)) return oversizedCache();
   try {
     var c = JSON.parse(text || "{}");
     if (!c || !Array.isArray(c.launches)) return { launches: [], starred: [] };
@@ -49,6 +57,7 @@ var TEST_ID = "liftoff-test-flight";
 var TEST_STALE_MS = 5000;
 
 function parseTest(text) {
+  if (text && tooBig(text.length)) return null;
   try { var t = JSON.parse(text || "{}"); return t && t.test && t.launch ? t : null; } catch (e) { return null; }
 }
 
@@ -237,6 +246,7 @@ function nextMilestone(cache, l, nowMs) {
 }
 
 function parseNudge(text) {
+  if (text && tooBig(text.length)) return {};
   try { var n = JSON.parse(text || "{}"); return n && typeof n === "object" ? n : {}; } catch (e) { return {}; }
 }
 
@@ -310,8 +320,15 @@ function hidden(l, nowMs, hideBeyondDays) {
   return Date.parse(l.net) - nowMs > hideBeyondDays * 86400000;
 }
 
+// "$HOME/x", "${HOME}/x" and "~/x" -> absolute path, so the binary can be exec'd without a shell.
+function expandHome(p, home) {
+  p = String(p || "");
+  var m = /^(?:\$HOME|\$\{HOME\}|~)(\/.*)?$/.exec(p);
+  return m ? String(home || "") + (m[1] || "") : p;
+}
+
 // Node test hook (ignored by QML).
 if (typeof module !== "undefined") module.exports = {
-  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
+  MAX_FILE_BYTES: MAX_FILE_BYTES, tooBig: tooBig, oversizedCache: oversizedCache, expandHome: expandHome, parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
   barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
 };
