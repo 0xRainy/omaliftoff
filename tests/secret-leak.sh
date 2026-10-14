@@ -3,6 +3,7 @@
 # process's argv or environment (both readable via /proc by other local users), any log, or
 # any file other than the 0600 config.
 #
+# Then runs doctor/test-notify/status/alerts (also with a broken config line) the same way.
 # Runs `install.sh --setup` twice (fresh setup, then "keep existing") in a throwaway HOME under
 # `strace -f -v -e trace=execve`, with a scripted `gum` stand-in answering the prompts and a
 # local mock ntfy server for the test push. Fails if a sentinel topic/token shows up anywhere.
@@ -79,6 +80,27 @@ run() {  # $1 = label; runs the wizard on a pty so the installer is interactive
 run fresh
 run keep
 
+# the other commands that read the secrets: doctor (ntfy health check), test-notify (desktop
+# notify-send + ntfy push), status, alerts. A recording notify-send/xdg-open stand-in captures
+# their argv too. Then the same with a broken config line holding the topic: parse errors
+# (shown on the terminal and, from the daemon, in the journal) must not quote it.
+for c in notify-send xdg-open; do printf '#!/bin/sh\nprintf "%%s\\n" "$0" "$@" >> %q\n' "$W/desktop.argv" > "$W/shim/$c"; chmod +x "$W/shim/$c"; done
+cmds() {  # $1 = label
+  local c
+  for c in doctor "test-notify" "test-notify --ntfy" "test-notify --desktop" "status --json" "alerts --dry"; do
+    # shellcheck disable=SC2086  # $c is a fixed word list
+    LIFTOFF_API="http://127.0.0.1:$PORT" strace -f -v -s 65536 -e trace=execve -o "$W/trace.cmd.$1.${c// /_}" \
+      "$HOME/.local/bin/liftoff" $c > "$W/out.cmd.$1.${c// /_}" 2>&1 || true
+  done
+}
+cmds ok
+cfg="$XDG_CONFIG_HOME/liftoff/config.toml"
+cp "$cfg" "$W/cfg.bak"
+sed -i -E 's/^(ntfy_topic = .*)$/\1 broken/' "$cfg"
+grep -qF "$TOPIC\" broken" "$cfg" || { echo "secret-leak: could not break the config"; exit 1; }
+cmds broken
+cp "$W/cfg.bak" "$cfg"; rm -f "$W/cfg.bak"
+
 fail=0
 check() {  # $1 = what, $2 = file
   for s in "$TOPIC" "$TOKEN"; do
@@ -89,8 +111,11 @@ check() {  # $1 = what, $2 = file
   done
 }
 for t in fresh keep; do check "argv/env of child processes (strace execve, $t run)" "$W/trace.$t"; done
+for f in "$W"/trace.cmd.* "$W"/out.cmd.*; do check "${f##*/} (argv/env or terminal output of liftoff ${f##*cmd.})" "$f"; done
+[[ -s $W/desktop.argv ]] && check "notify-send/xdg-open argv" "$W/desktop.argv"
+grep -qs "OmaLiftoff" "$W/desktop.argv" || { echo "secret-leak: test-notify --desktop did not call notify-send"; fail=1; }
+grep -qs "line [0-9]*, column" "$W/out.cmd.broken.status_--json" "$W/out.cmd.broken.alerts_--dry" || { echo "secret-leak: broken config was not reported"; fail=1; }
 # files: only the config may contain them, and it must be 0600
-cfg="$XDG_CONFIG_HOME/liftoff/config.toml"
 if ! { grep -qF "$TOPIC" "$cfg" && grep -qF "$TOKEN" "$cfg"; }; then echo "secret-leak: wizard did not store the secrets"; fail=1; fi
 mode=$(stat -c %a "$cfg"); [[ $mode == 600 ]] || { echo "LEAK: $cfg is mode $mode, want 600"; fail=1; }
 while IFS= read -r f; do [[ $f == "$cfg" ]] || check "file $f" "$f"; done < <(grep -rlF -e "$TOPIC" -e "$TOKEN" "$HOME" 2>/dev/null || true)
