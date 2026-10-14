@@ -71,7 +71,7 @@
         "max": 240,
         "step": 5,
         "defaultValue": 60,
-        "description": "Inside this window the rocket icon pulses in the accent color (the text stays plain); the popup marks the launch LIVE."
+        "description": "The rocket icon pulses in the accent color during this window."
       },
       {
         "key": "hideBeyondDays",
