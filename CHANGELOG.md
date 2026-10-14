@@ -1,10 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 (2026-10-13)
+
+Fixes.
 
 - **Test flight could end early with two TUIs open**: closing one TUI that had a test flight running left
   a stop record, so the test flight in every other TUI switched off too. Closing a TUI now only clears
   the bar marker; an explicit Ctrl-x t f still stops all of them.
+- Settings text: the live-window setting now only describes the rocket icon pulse; no emoji in the vehicle
+  setting.
+- Maintenance: cargo fmt, clippy -D warnings and cargo audit in CI; new marketplace preview image.
 
 ## 0.1.1 (2026-10-13)
 
