@@ -63,25 +63,40 @@ pub fn set_secret(cfg: &Config, key: &str, mut input: impl std::io::BufRead) -> 
 }
 
 pub fn config_cmd(args: &[String]) -> Result<()> {
-    let cfg = Config::load()?;
-    match (args.first().map(String::as_str), args.get(1), args.get(2)) {
-        (Some("get"), Some(k), _) => println!("{}", get_key(&cfg, k)?),
-        (Some("set-secret"), Some(k), None) => {
-            set_secret(&cfg, k, std::io::stdin().lock())?.save()?;
-            println!("{k} updated (restart: systemctl --user restart liftoff)");
-        }
+    config_cmd_at(&paths::config_file(), args, std::io::stdin().lock())
+}
+
+/// `liftoff config …` against an explicit config file (tests use a temp dir, never $HOME).
+/// Reads the file as stored: the `LIFTOFF_API` override is not applied, so `set` can't persist it.
+/// Argument errors (a secret in argv, bad usage) are reported before the file is read or created.
+pub fn config_cmd_at(path: &std::path::Path, args: &[String], stdin: impl std::io::BufRead) -> Result<()> {
+    let (cmd, k, v) = (args.first().map(String::as_str), args.get(1), args.get(2));
+    match (cmd, k, v) {
         // the value already sits in our argv, so refuse rather than silently accept it
         (Some("set"), Some(k), Some(_)) if is_secret_key(k) => {
             return Err(anyhow!(
                 "{k} is a secret: pipe it on stdin instead, e.g. `liftoff config set-secret {k} < file` (command-line arguments are visible to other users)"
             ));
         }
-        (Some("set"), Some(k), Some(v)) => {
-            set_key(&cfg, k, v)?.save()?;
+        (Some("path"), _, _) => {
+            println!("{}", path.display());
+            return Ok(());
+        }
+        (Some("get"), Some(_), _) | (Some("set-secret"), Some(_), None) | (Some("set"), Some(_), Some(_)) => {}
+        _ => return Err(anyhow!("usage: liftoff config get <key> | set <key> <value> | set-secret <key> (value on stdin) | path")),
+    }
+    let cfg = Config::load_from(path)?;
+    match (cmd, k, v) {
+        (Some("get"), Some(k), _) => println!("{}", get_key(&cfg, k)?),
+        (Some("set-secret"), Some(k), None) => {
+            set_secret(&cfg, k, stdin)?.save_to(path)?;
             println!("{k} updated (restart: systemctl --user restart liftoff)");
         }
-        (Some("path"), _, _) => println!("{}", paths::config_file().display()),
-        _ => return Err(anyhow!("usage: liftoff config get <key> | set <key> <value> | set-secret <key> (value on stdin) | path")),
+        (Some("set"), Some(k), Some(v)) => {
+            set_key(&cfg, k, v)?.save_to(path)?;
+            println!("{k} updated (restart: systemctl --user restart liftoff)");
+        }
+        _ => unreachable!("validated above"),
     }
     Ok(())
 }
@@ -243,8 +258,28 @@ mod tests {
 
     #[test]
     fn config_set_refuses_secret_in_argv() {
-        let e = config_cmd(&["set".into(), "notify.ntfy_topic".into(), "liftoff-sentinel".into()]).unwrap_err().to_string();
-        assert!(e.contains("set-secret") && !e.contains("liftoff-sentinel"), "{e}");
+        let dir = tempdir();
+        let p = dir.join("liftoff/config.toml");
+        for k in SECRET_KEYS {
+            let e = config_cmd_at(&p, &["set".into(), (*k).into(), "liftoff-sentinel".into()], &b""[..]).unwrap_err().to_string();
+            assert!(e.contains("set-secret") && !e.contains("liftoff-sentinel"), "{e}");
+        }
+        assert!(!p.exists(), "a refused secret must not create or write the config");
+        // and an existing config is left byte-for-byte alone
+        config_cmd_at(&p, &["set".into(), "notify.desktop".into(), "false".into()], &b""[..]).unwrap();
+        let before = std::fs::read(&p).unwrap();
+        assert!(config_cmd_at(&p, &["set".into(), "notify.ntfy_topic".into(), "liftoff-sentinel".into()], &b""[..]).is_err());
+        assert_eq!(std::fs::read(&p).unwrap(), before);
+        config_cmd_at(&p, &["set-secret".into(), "notify.ntfy_topic".into()], &b"liftoff-sentinel\n"[..]).unwrap();
+        assert_eq!(Config::load_from(&p).unwrap().notify.ntfy_topic, "liftoff-sentinel");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tempdir() -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("liftoff-cli-test-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
     }
     #[test]
     fn set_and_get_keys() {
