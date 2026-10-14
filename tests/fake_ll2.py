@@ -13,7 +13,7 @@ import copy, http.server, json, os, sys
 D = sys.argv[1]
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = json.load(open(os.path.join(HERE, "fixtures", "upcoming.json")))["results"][0]
-STATUS = {1: ("Go for Launch", "Go"), 2: ("To Be Determined", "TBD"), 5: ("On Hold", "Hold"), 8: ("To Be Confirmed", "TBC")}
+STATUS = {1: ("Go for Launch", "Go"), 3: ("Launch Successful", "Success"), 2: ("To Be Determined", "TBD"), 5: ("On Hold", "Hold"), 8: ("To Be Confirmed", "TBC")}
 
 
 def rd(name, default=""):

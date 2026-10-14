@@ -24,10 +24,11 @@ const cache = { starred: ["SpaceX"], launches: [
   L({ id: "sx", net: "2026-10-13T21:00:00Z" }),
   L({ id: "old", net: "2026-10-13T16:00:00Z" }),
 ] };
-assert.deepStrictEqual(M.upcoming(cache, now).map(l => l.id), ["rl", "sx"]);
-assert.deepStrictEqual(M.upcoming(cache, now, { providerFilter: "spacex" }).map(l => l.id), ["sx"]);
+// "old" is 2 h past NET but LL2 still lists it unfinished: shown (overdue), never hidden
+assert.deepStrictEqual(M.upcoming(cache, now).map(l => l.id), ["old", "rl", "sx"]);
+assert.deepStrictEqual(M.upcoming(cache, now, { providerFilter: "spacex" }).map(l => l.id), ["old", "sx"]);
 assert.deepStrictEqual(M.upcoming(cache, now, { providerFilter: "RL, ula" }).map(l => l.id), ["rl"]);
-assert.deepStrictEqual(M.upcoming(cache, now, { starredOnly: true }).map(l => l.id), ["sx"]);
+assert.deepStrictEqual(M.upcoming(cache, now, { starredOnly: true }).map(l => l.id), ["old", "sx"]);
 assert.ok(M.isLive(L({ net: "2026-10-13T18:30:00Z" }), now, 60));
 assert.ok(!M.isLive(L({ net: "2026-10-13T20:30:00Z" }), now, 60));
 assert.ok(M.isLive(L({ status_id: 6, net: "2026-10-13T17:00:00Z" }), now, 60));
@@ -171,15 +172,19 @@ assert.strictEqual(M.expandHome("~/x y/liftoff", "/home/u"), "/home/u/x y/liftof
 assert.strictEqual(M.expandHome("/opt/liftoff; rm -rf ~", "/home/u"), "/opt/liftoff; rm -rf ~");
 console.log("model.test.js: bounded-read + expandHome assertions passed");
 
-// B1: one expiry rule, cases shared with src/model.rs (tests/fixtures/expiry_cases.json)
-const EX = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "tests", "fixtures", "expiry_cases.json"), "utf8"));
+// One overdue rule, cases shared with src/model.rs (tests/fixtures/overdue_cases.json).
+// LL2 is the ground truth: a listed, unfinished launch is always shown; overdue ones say so.
+const EX = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "tests", "fixtures", "overdue_cases.json"), "utf8"));
 const wrong = EX.cases.filter((c) => {
   const l = L({ net: c.net, net_precision: c.p, status_id: c.status_id || 1 });
-  return (M.upcoming({ launches: [l] }, Date.parse(c.now)).length === 0) !== c.expired;
+  const n = Date.parse(c.now), u = M.upcoming({ launches: [l] }, n);
+  return u.length !== 1 || M.overdue(l, n) !== c.overdue || /awaiting update$/.test(M.displayCountdown(l, n)) !== c.overdue;
 });
-assert.deepStrictEqual(wrong, [], "expiry rule disagrees with tests/fixtures/expiry_cases.json:\n" + wrong.map((c) => JSON.stringify(c)).join("\n"));
+assert.deepStrictEqual(wrong, [], "disagrees with tests/fixtures/overdue_cases.json:\n" + wrong.map((c) => JSON.stringify(c)).join("\n"));
+// finished per LL2 status (3 Success, 4 Failure, 7 Partial Failure, 9 Payload Deployed): not shown
+for (const id of [3, 4, 7, 9]) assert.strictEqual(M.upcoming({ launches: [L({ status_id: id })] }, now).length, 0, "status " + id);
 // a calendar label has no T-0: never "live" / pulsing at 00:00 UTC
 const dayL = L({ net: "2026-10-14T00:00:00Z", net_precision: "DAY" });
 assert.strictEqual(M.isLive(dayL, Date.parse("2026-10-13T23:30:00Z"), 60), false);
 assert.strictEqual(M.iconState(dayL, Date.parse("2026-10-14T01:00:00Z")), "normal");
-console.log("model.test.js: expiry assertions passed (" + EX.cases.length + " shared cases)");
+console.log("model.test.js: overdue assertions passed (" + EX.cases.length + " shared cases)");

@@ -334,7 +334,7 @@ impl App {
         let ls = &self.cache.launches;
         let idx = match &self.sel_id {
             Some(id) => ls.iter().position(|l| &l.id == id).or(if ls.is_empty() { None } else { Some(0) }),
-            None => schedule::next_launch(ls, Utc::now()).and_then(|n| ls.iter().position(|l| l.id == n.id)).or(if ls.is_empty() { None } else { Some(0) }),
+            None => schedule::next_launch(ls).and_then(|n| ls.iter().position(|l| l.id == n.id)).or(if ls.is_empty() { None } else { Some(0) }),
         };
         self.table.select(idx);
         if let Some(i) = idx {
@@ -726,7 +726,7 @@ fn draw(f: &mut Frame, app: &mut App) {
     draw_list(f, app, left[1], now);
     app.visible.push((Pane::List, left[1]));
     let details_slot = app.visible.len();
-    draw_map(f, app, right[0], now);
+    draw_map(f, app, right[0]);
     let side: Option<(Pane, DrawFn)> = match app.side {
         SidePane::Telemetry => Some((Pane::Telemetry, |f, a, r, _| draw_telemetry(f, a, r))),
         SidePane::FlightPlan => Some((Pane::Plan, draw_plan)),
@@ -767,7 +767,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     let test_l = app.test.as_ref().and_then(|_| app.launches().iter().find(|l| l.id == testflight::ID));
-    let Some(l) = test_l.or_else(|| schedule::next_launch(app.launches(), now)) else {
+    let Some(l) = test_l.or_else(|| schedule::next_launch(app.launches())) else {
         let msg = if app.fetching { "fetching launches…" } else { "no launches cached — press r" };
         f.render_widget(Paragraph::new(msg).style(app.c(DIM)).alignment(Alignment::Center), inner);
         return;
@@ -830,7 +830,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
 }
 
 fn short_countdown(l: &Launch, now: DateTime<Utc>) -> String {
-    if !l.precise() {
+    if !l.precise() || l.overdue(now) {
         return l.net_text(crate::model::NetFmt::Column);
     }
     let secs = -schedule::rel_secs(l.net, now);
@@ -924,7 +924,7 @@ pub fn place_labels(items: &[(u16, u16, u16)], area: Rect, taken: &mut Vec<Rect>
         .collect()
 }
 
-fn draw_map(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
+fn draw_map(f: &mut Frame, app: &App, area: Rect) {
     let sel = app.selected().cloned();
     let pulse = if app.reduced_motion { true } else { app.tick % 6 < 4 };
     let title = sel.as_ref().map(|l| format!("Pads · {}", l.location)).unwrap_or_else(|| "Pads".into());
@@ -959,7 +959,7 @@ fn draw_map(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     }
     // group upcoming launches by pad
     let mut pads: Vec<(f64, f64, String, usize, String, bool)> = vec![]; // lon, lat, pad, count, status, selected
-    for l in app.launches().iter().filter(|l| !l.expired(now - Duration::minutes(90))) {
+    for l in app.launches().iter().filter(|l| !crate::model::status::is_finished(l.status_id)) {
         let (Some(lon), Some(lat)) = (l.lon, l.lat) else { continue };
         let is_sel = sel.as_ref().is_some_and(|s| s.id == l.id);
         match pads.iter_mut().find(|p| (p.0 - lon).abs() < 0.05 && (p.1 - lat).abs() < 0.05) {

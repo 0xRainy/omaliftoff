@@ -60,12 +60,22 @@ for p in "UTC|18:00" "America/Phoenix|11:00" "Asia/Tokyo|03:00"; do
   check "MIN NET T-1h alert shows local clock in ${p%%|*}" "Liftoff in 59m \(${p#*|}\)" "$(at "${p%%|*}" "2026-10-20 17:01:00" "$BIN" alerts --dry 2>&1)"
 done
 
-echo "== B1: a DAY-precision launch stays current through its UTC day"
+echo "== LL2 is the ground truth: a listed, unfinished launch is never hidden (B1)"
 fresh 2026-10-14T00:00:00Z DAY
 at UTC "2026-10-13 12:00:00" "$BIN" fetch >/dev/null 2>&1
 check "DAY launch shown 00:30Z+1m on its day (Phoenix evening before)" 'NET Wed Oct 14$' "$(at America/Phoenix "2026-10-14 00:31:00" "$BIN" status)"
 check "DAY launch shown at 23:59Z on its day" 'NET Wed Oct 14$' "$(at UTC "2026-10-14 23:59:00" "$BIN" status)"
-check "DAY launch gone after its UTC day" '—$' "$(at UTC "2026-10-15 00:01:00" "$BIN" status)"
+check "DAY launch after its day, still listed: shown, awaiting update" 'NET Wed Oct 14 · awaiting update$' "$(at UTC "2026-10-15 00:01:00" "$BIN" status)"
+fresh 2026-10-14T18:00:00Z MIN
+at UTC "2026-10-14 12:00:00" "$BIN" fetch >/dev/null 2>&1
+check "MIN launch 10 min past NET: T+ count" 'T\+00:10:00$' "$(at UTC "2026-10-14 18:10:00" "$BIN" status)"
+at UTC "2026-10-16 18:00:00" "$BIN" fetch >/dev/null 2>&1   # LL2 still lists it two days later
+check "MIN launch 2 days past NET, still listed: shown, awaiting update" 'NET Wed Oct 14 [0-9:]+ · awaiting update$' "$(at UTC "2026-10-16 18:00:00" "$BIN" status)"
+check "status --json carries it too" '"text":"[^"]*awaiting update"' "$(at UTC "2026-10-16 18:00:00" "$BIN" status --json)"
+check "overdue launch: no alert storm" '^0 alert' "$(at UTC "2026-10-16 18:00:00" "$BIN" alerts 2>/dev/null)"
+echo 3 > "$W/srv/status.txt"   # LL2 marks it Launch Successful (status id 3)
+at UTC "2026-10-16 18:30:00" "$BIN" fetch >/dev/null 2>&1
+check "finished per LL2 (status 3): no longer shown" '—$' "$(at UTC "2026-10-16 18:30:00" "$BIN" status)"
 
 echo "== B2: config set refuses a secret in argv without creating the config"
 h=$(mktemp -d "$W/b2.XXXX")

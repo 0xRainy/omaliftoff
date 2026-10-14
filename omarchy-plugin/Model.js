@@ -34,11 +34,11 @@ function matchesProvider(l, list) {
   return list.indexOf(n) !== -1 || (a && list.indexOf(a) !== -1);
 }
 
-// THE "is this launch over?" rule (mirrors Launch::current_until / expired in model.rs; see the
-// LL2 evidence there). Exact/hour NETs: NET + 30 min. Day and coarser NETs are calendar labels
+// THE "is this launch overdue?" rule (mirrors Launch::current_until / overdue in model.rs; see
+// the LL2 evidence there). Overdue never hides a launch: LL2's upcoming list is the ground truth. Exact/hour NETs: NET + 30 min. Day and coarser NETs are calendar labels
 // (00:00 UTC of a day in the period): current through the end of the labelled UTC period, with
 // quarter/half taken from the code. Unverified encodings: WK +7 days, FY end of calendar year,
-// DEC end of decade, unknown end of day. Cases shared with Rust: tests/fixtures/expiry_cases.json.
+// DEC end of decade, unknown end of day. Cases shared with Rust: tests/fixtures/overdue_cases.json.
 function currentUntilMs(l) {
   var t = Date.parse(l.net), p = l.net_precision || "";
   if (isNaN(t)) return NaN;
@@ -59,7 +59,7 @@ function currentUntilMs(l) {
   return Math.max(end, dayEnd);
 }
 
-function expired(l, nowMs) {
+function overdue(l, nowMs) {
   return l.status_id !== 6 && nowMs >= currentUntilMs(l);
 }
 
@@ -72,7 +72,6 @@ function upcoming(cache, nowMs, opts) {
     if (FINISHED[l.status_id]) return false;
     var t = Date.parse(l.net);
     if (isNaN(t)) return false;
-    if (expired(l, nowMs)) return false;
     if (!matchesProvider(l, filter)) return false;
     if (opts.starredOnly && !matchesProvider(l, starred)) return false;
     return true;
@@ -194,6 +193,7 @@ function netText(l, fmt) {
 
 // Don't fake precision: only exact/hour NETs tick; coarse NETs always show their label.
 function displayCountdown(l, nowMs) {
+  if (overdue(l, nowMs)) return "NET " + netText(l, "long") + " · awaiting update";
   if (PRECISE[l.net_precision || ""]) return countdown(l.net, nowMs);
   return "NET " + netText(l, "long");
 }
@@ -359,6 +359,6 @@ function expandHome(p, home) {
 
 // Node test hook (ignored by QML).
 if (typeof module !== "undefined") module.exports = {
-  MAX_FILE_BYTES: MAX_FILE_BYTES, tooBig: tooBig, oversizedCache: oversizedCache, expandHome: expandHome, parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, currentUntilMs: currentUntilMs, expired: expired, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
+  MAX_FILE_BYTES: MAX_FILE_BYTES, tooBig: tooBig, oversizedCache: oversizedCache, expandHome: expandHome, parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, currentUntilMs: currentUntilMs, overdue: overdue, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
   barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
 };

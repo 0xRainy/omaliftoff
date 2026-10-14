@@ -68,7 +68,7 @@ fn main() -> Result<()> {
         "status" => {
             let cache = store::load_cache(&paths::cache_file());
             let now = Utc::now();
-            let Some(l) = schedule::next_launch(&cache.launches, now) else {
+            let Some(l) = schedule::next_launch(&cache.launches) else {
                 println!("\u{f14de} —");
                 return Ok(());
             };

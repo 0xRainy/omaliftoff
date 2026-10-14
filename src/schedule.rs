@@ -30,9 +30,16 @@ pub fn format_countdown(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
 }
 
 /// Countdown that does not invent precision: only exact/hour NETs tick; coarse NETs always
-/// show their label (no countdown toward LL2's UTC-midnight placeholder).
+/// show their label (no countdown toward LL2's UTC-midnight placeholder). An overdue launch
+/// (NET passed, LL2 hasn't confirmed liftoff or a new date) says so instead of counting up.
 pub fn display_countdown(l: &Launch, now: DateTime<Utc>) -> String {
-    if l.precise() { format_countdown(l.net, now) } else { format!("NET {}", l.net_text(crate::model::NetFmt::Long)) }
+    if l.overdue(now) {
+        format!("NET {} · awaiting update", l.net_text(crate::model::NetFmt::Long))
+    } else if l.precise() {
+        format_countdown(l.net, now)
+    } else {
+        format!("NET {}", l.net_text(crate::model::NetFmt::Long))
+    }
 }
 
 /// Lead text for a coarse NET, from calendar dates (LL2's label date vs today's local date),
@@ -75,21 +82,23 @@ pub fn human_lead(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
     }
 }
 
-/// The next launch that is still worth counting down to: not finished and not
-/// [`Launch::expired`] (the precision-aware "is it over?" rule).
-pub fn next_launch(launches: &[Launch], now: DateTime<Utc>) -> Option<&Launch> {
-    launches.iter().filter(|l| !status::is_finished(l.status_id)).filter(|l| !l.expired(now)).min_by_key(|l| l.net)
+/// The next launch to show: the soonest one LL2 still lists that is not finished (LL2 status
+/// 3 Success, 4 Failure, 7 Partial Failure, 9 Payload Deployed). LL2's upcoming list is the
+/// ground truth: a launch past its NET stays shown (see [`Launch::overdue`]) until LL2 drops it.
+pub fn next_launch(launches: &[Launch]) -> Option<&Launch> {
+    launches.iter().filter(|l| !status::is_finished(l.status_id)).min_by_key(|l| l.net)
 }
 
 // ---------------------------------------------------------------- refresh
 
 /// Adaptive refresh: ~10 min normally, faster as T-0 approaches.
 pub fn refresh_interval(launches: &[Launch], now: DateTime<Utc>) -> Duration {
-    let Some(l) = next_launch(launches, now) else {
+    let Some(l) = next_launch(launches) else {
         return Duration::minutes(10);
     };
-    if !l.precise() && l.status_id != status::IN_FLIGHT {
-        // a calendar-label NET has no T-0 to speed up for (00:00 UTC is not a launch time)
+    if (!l.precise() || l.overdue(now)) && l.status_id != status::IN_FLIGHT {
+        // a calendar-label NET has no T-0 to speed up for (00:00 UTC is not a launch time), and
+        // an overdue NET waits on LL2 at the normal pace instead of burning the hourly budget
         return Duration::minutes(10);
     }
     let lead = l.net - now;
@@ -574,7 +583,7 @@ mod tests {
         done.status_id = status::SUCCESS;
         let later = launch("later", "X", t0() + Duration::hours(3));
         let ls = vec![done, later];
-        assert_eq!(next_launch(&ls, t0()).unwrap().id, "later");
+        assert_eq!(next_launch(&ls).unwrap().id, "later");
     }
 
     #[test]

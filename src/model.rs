@@ -187,8 +187,9 @@ impl Launch {
         if self.precise() { self.net.with_timezone(&Local).date_naive() } else { self.net.date_naive() }
     }
 
-    /// THE only "is this launch over?" rule (status line, bar, TUI, refresh pacing). Returns the
-    /// earliest instant at which the NET can be in the past.
+    /// THE only "is this launch overdue?" rule (status line, bar, TUI, refresh pacing). Returns the
+    /// earliest instant at which the NET can be in the past. Overdue never hides a launch: LL2's
+    /// upcoming list is the ground truth for what is shown; overdue launches read "awaiting update".
     ///
     /// Exact/hour NETs are instants: current until NET + 30 min (unchanged). Day and coarser NETs
     /// are calendar *labels* (see [`Launch::net_date`]): LL2 stores them as 00:00 UTC of a day in
@@ -222,8 +223,9 @@ impl Launch {
         end.unwrap_or(day_end).max(day_end)
     }
 
-    /// Past its [`Launch::current_until`] and not in flight.
-    pub fn expired(&self, now: DateTime<Utc>) -> bool {
+    /// Past its [`Launch::current_until`] and not in flight: LL2 still lists it, but its NET has
+    /// passed without LL2 confirming a liftoff or a new date.
+    pub fn overdue(&self, now: DateTime<Utc>) -> bool {
         self.status_id != status::IN_FLIGHT && now >= self.current_until()
     }
 
@@ -558,8 +560,8 @@ mod expiry_tests {
 
     /// Shared with omarchy-plugin/tests/model.test.js (same rule in Rust and the widget).
     #[test]
-    fn coarse_nets_stay_current_through_their_labelled_period() {
-        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/expiry_cases.json")).unwrap();
+    fn listed_launches_stay_shown_and_overdue_ones_say_so() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/overdue_cases.json")).unwrap();
         for c in v["cases"].as_array().unwrap() {
             let l = Launch {
                 net: c["net"].as_str().unwrap().parse().unwrap(),
@@ -568,8 +570,13 @@ mod expiry_tests {
                 ..Default::default()
             };
             let now: DateTime<Utc> = c["now"].as_str().unwrap().parse().unwrap();
-            // through the public choke point only, so this test also runs against pre-fix code
-            assert_eq!(crate::schedule::next_launch(std::slice::from_ref(&l), now).is_none(), c["expired"].as_bool().unwrap(), "{c}");
+            assert_eq!(l.overdue(now), c["overdue"].as_bool().unwrap(), "{c}");
+            // LL2 is the ground truth: a listed, unfinished launch is never hidden, overdue or not
+            // (through the same choke point the status line, TUI and refresh pacing use)
+            let shown = crate::schedule::next_launch(std::slice::from_ref(&l)).is_some();
+            assert!(shown, "listed launch hidden: {c}");
+            let text = crate::schedule::display_countdown(&l, now);
+            assert_eq!(text.ends_with("awaiting update"), c["overdue"].as_bool().unwrap(), "{text} {c}");
         }
     }
 
@@ -578,5 +585,13 @@ mod expiry_tests {
         let l = Launch { net: "2026-10-14T00:00:00Z".parse().unwrap(), net_precision: "DAY".into(), status_id: 1, ..Default::default() };
         let now: DateTime<Utc> = "2026-10-14T00:05:00Z".parse().unwrap();
         assert_eq!(crate::schedule::refresh_interval(std::slice::from_ref(&l), now), chrono::Duration::minutes(10));
+        // an overdue exact NET (LL2 hasn't updated it) must not keep the 4-minute pace forever
+        let m = Launch { net: "2026-10-14T00:00:00Z".parse().unwrap(), net_precision: "MIN".into(), status_id: 1, ..Default::default() };
+        assert_eq!(crate::schedule::refresh_interval(std::slice::from_ref(&m), "2026-10-15T00:00:00Z".parse().unwrap()), chrono::Duration::minutes(10));
+        // finished per LL2 status (3 Success, 4 Failure, 7 Partial Failure, 9 Payload Deployed): not shown
+        for id in [3, 4, 7, 9] {
+            let f = Launch { status_id: id, ..m.clone() };
+            assert!(crate::schedule::next_launch(std::slice::from_ref(&f)).is_none(), "status {id}");
+        }
     }
 }

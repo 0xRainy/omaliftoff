@@ -45,15 +45,20 @@ Fixes.
   fetch … ; latest attempt failed: …". Successful fetches are logged as before. The cache's fetch time only
   moves on success (unchanged), and a failed attempt still counts against the local hourly budget, since LL2
   may have counted it.
-- **Day-precision (and coarser) launches vanished from the bar a day early**: LL2 stores a launch
-  it only knows to the day as 00:00 UTC of that day, and the "launch is over" check treated that as
-  a liftoff time, 30 minutes after which the launch was dropped. A launch "NET Oct 14" left the bar,
-  `liftoff status` and the TUI at 00:30 UTC Oct 14, which is 17:30 on Oct 13 in Phoenix. One rule
-  (daemon/TUI and widget, with test cases shared by both) now keeps day-and-coarser launches current
-  through the end of their labelled UTC period: the day, month, quarter or half named by LL2's code
-  (Q1 NETs also sit on Jan 31 and Feb 28 in LL2 data), or the year. Week, fiscal-year and decade NETs
-  (no LL2 samples) are kept longest. Such launches also no longer speed up the refresh pace, or make the
-  bar icon pulse and the TUI countdown blink, around 00:00 UTC.
+- **Launches vanished from the bar while LL2 still listed them**: the bar, `liftoff status` and the TUI
+  dropped any launch 30 minutes past its NET. LL2 stores a launch it only knows to the day as 00:00 UTC
+  of that day, so a launch "NET Oct 14" disappeared at 00:30 UTC Oct 14, which is 17:30 on Oct 13 in
+  Phoenix. Launches LL2 hadn't updated after a slip disappeared too. LL2's upcoming list is now the
+  only source of truth: a launch stays shown until LL2 stops listing it or gives it a final status
+  (3 Success, 4 Failure, 7 Partial Failure, 9 Payload Deployed).
+  A launch whose NET has passed without word from LL2 reads "NET Wed Oct 14 · awaiting update"
+  instead of counting up. For exact/hour NETs that starts 30 minutes after the NET. For day and coarser
+  NETs it starts at the end of their labelled UTC period: the day, month, the quarter or half named by
+  LL2's code (Q1 NETs also sit on Jan 31 and Feb 28 in LL2 data), or the year; week, fiscal-year and
+  decade NETs have no LL2 samples and are given the longest period. One rule covers the daemon, TUI
+  and widget, with test cases shared by both. Overdue and coarse launches keep the normal refresh
+  pace (no burned hourly budget). Coarse launches no longer make the bar icon pulse or the TUI
+  countdown blink around 00:00 UTC.
 - `liftoff config set` with a secret key is refused before the config is read, so the refusal no
   longer creates a default `config.toml`. `liftoff config` edits the file as stored and no longer
   writes a `LIFTOFF_API` override into it.
