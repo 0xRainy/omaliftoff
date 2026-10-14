@@ -241,6 +241,7 @@ BarWidget {
       anchors.centerIn: parent
       spacing: 0
       Text {
+        textFormat: Text.PlainText
         id: icon
         text: Model.ICON
         color: root.iconColor

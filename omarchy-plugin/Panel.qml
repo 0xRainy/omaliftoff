@@ -40,6 +40,7 @@ Panel {
     implicitHeight: chipText.implicitHeight + Style.space(6)
     implicitWidth: chipText.implicitWidth + Style.space(16)
     Text {
+      textFormat: Text.PlainText
       id: chipText
       anchors.centerIn: parent
       color: parent.tint
@@ -61,6 +62,7 @@ Panel {
     implicitHeight: btnText.implicitHeight + Style.space(12)
     implicitWidth: btnText.implicitWidth + Style.space(24)
     Text {
+      textFormat: Text.PlainText
       id: btnText
       anchors.centerIn: parent
       color: root.fg
@@ -106,6 +108,7 @@ Panel {
         spacing: Style.space(10)
 
         Text {
+          textFormat: Text.PlainText
           visible: !root.l
           text: root.w && root.w.cache.error ? root.w.cache.error : "No upcoming launches in cache.\nStart it with: systemctl --user enable --now liftoff"
           color: root.dim
@@ -117,6 +120,7 @@ Panel {
 
         // ---- test flight banner (TUI hidden test flight; display only, no alerts)
         Text {
+          textFormat: Text.PlainText
           visible: Model.isTest(root.l)
           text: "TEST FLIGHT · synthetic loop from the TUI (Ctrl-x t f to stop) · not a real launch"
           color: root.w ? root.w.statusColor("flight") : root.fg
@@ -147,6 +151,7 @@ Panel {
             Layout.fillWidth: true
             spacing: Style.space(2)
             Text {
+              textFormat: Text.PlainText
               text: root.l ? (root.l.mission || root.l.name) : ""
               color: root.fg
               font.family: root.font
@@ -156,6 +161,7 @@ Panel {
               Layout.fillWidth: true
             }
             Text {
+              textFormat: Text.PlainText
               text: root.l ? Model.shortRocket(root.l) + " · " + root.l.provider : ""
               color: root.fg
               font.family: root.font
@@ -164,6 +170,7 @@ Panel {
               elide: Text.ElideRight
             }
             Text {
+              textFormat: Text.PlainText
               text: root.l ? root.l.pad + (root.l.location ? " · " + root.l.location : "") : ""
               color: root.dim
               font.family: root.font
@@ -176,6 +183,7 @@ Panel {
 
         // ---- countdown
         Text {
+          textFormat: Text.PlainText
           visible: !!root.l
           text: root.l ? Model.displayCountdown(root.l, root.nowMs) : ""
           color: root.w && root.l ? root.w.statusColor(Model.colorKey(root.l)) : root.fg
@@ -185,6 +193,7 @@ Panel {
           Layout.alignment: Qt.AlignHCenter
         }
         Text {
+          textFormat: Text.PlainText
           visible: !!root.l
           text: root.l ? "NET " + Model.netText(root.l, "long") : ""
           color: root.dim
@@ -199,6 +208,7 @@ Panel {
           spacing: Style.space(2)
           Layout.alignment: Qt.AlignHCenter
           Text {
+            textFormat: Text.PlainText
             text: (Model.isTest(root.l) ? "● TEST FLIGHT  " : "● LIVE  ") + (parent.st ? Model.fmtRel(parent.st.tRel) : "")
             color: root.w ? root.w.statusColor("flight") : root.fg
             font.family: root.font
@@ -207,6 +217,7 @@ Panel {
             Layout.alignment: Qt.AlignHCenter
           }
           Text {
+            textFormat: Text.PlainText
             visible: !!(parent.st && parent.st.current)
             text: parent.st && parent.st.current ? "now  " + parent.st.current.label + "  " + parent.st.current.at : ""
             color: root.fg
@@ -215,6 +226,7 @@ Panel {
             Layout.alignment: Qt.AlignHCenter
           }
           Text {
+            textFormat: Text.PlainText
             visible: !!(parent.st && parent.st.next)
             text: parent.st && parent.st.next ? "next " + parent.st.next.label + "  " + parent.st.next.at + "  (in " + Model.shortSecs(parent.st.next.in) + ")" : ""
             color: root.dim
@@ -224,6 +236,7 @@ Panel {
           }
         }
         Text {
+          textFormat: Text.PlainText
           readonly property var ev: root.w ? Model.nextMilestone(root.w.cache, root.l, root.nowMs) : null
           visible: !!ev && !(root.w && Model.liveStage(root.w.cache, root.l, root.nowMs))
           text: ev ? "next: " + ev.label + " · " + ev.at : ""
@@ -258,6 +271,7 @@ Panel {
           }
         }
         Text {
+          textFormat: Text.PlainText
           visible: !!root.l && !!root.l.weather_concerns
           text: root.l && root.l.weather_concerns ? "Weather: " + root.l.weather_concerns : ""
           color: root.dim
@@ -283,6 +297,7 @@ Panel {
         // ---- next 5
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.15) }
         Text {
+          textFormat: Text.PlainText
           text: "Up next"
           color: root.dim
           font.family: root.font
@@ -310,6 +325,7 @@ Panel {
                 color: root.w ? root.w.statusColor(Model.colorKey(modelData)) : root.fg
               }
               Text {
+                textFormat: Text.PlainText
                 text: Model.shortRocket(modelData) + " · " + (modelData.mission || modelData.name)
                 color: root.fg
                 font.family: root.font
@@ -318,6 +334,7 @@ Panel {
                 Layout.fillWidth: true
               }
               Text {
+                textFormat: Text.PlainText
                 text: Model.displayCountdown(modelData, root.nowMs)
                 color: root.dim
                 font.family: root.font
@@ -334,6 +351,7 @@ Panel {
           }
         }
         Text {
+          textFormat: Text.PlainText
           text: root.w ? "cache " + Model.ago(root.w.cache.fetched_at, root.nowMs)
             + (root.w.cache.throttle ? " · LL2 " + Math.max(0, root.w.cache.throttle.limit - root.w.cache.throttle.current_use) + "/" + root.w.cache.throttle.limit + " left" : "")
             + "  ·  j/k cycle · w watch · r refresh · t TUI" : ""
