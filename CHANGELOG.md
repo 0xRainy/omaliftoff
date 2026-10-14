@@ -59,6 +59,13 @@ Fixes.
   and widget, with test cases shared by both. Overdue and coarse launches keep the normal refresh
   pace (no burned hourly budget). Coarse launches no longer make the bar icon pulse or the TUI
   countdown blink around 00:00 UTC.
+- **Reserved syncs could run up to 15 s late, so a T-5s sync could land after liftoff.** When the
+  daemon woke a fraction of a millisecond before a sync was due (its sleep was rounded down to whole
+  milliseconds), it found the sync not yet due. It then planned its next sleep only toward *later*
+  syncs and slept the full 15 s past the one that had just become due. Reproduced in about 1 in 3 starts
+  shortly before a sync. The daemon now always sleeps toward the earliest pending sync, rounded up,
+  and goes round immediately if it is already due. It also re-reads the wall clock at least every
+  second, so a suspend/resume or clock step no longer delays a due sync by up to 15 s.
 - `liftoff config set` with a secret key is refused before the config is read, so the refusal no
   longer creates a default `config.toml`. `liftoff config` edits the file as stored and no longer
   writes a `LIFTOFF_API` override into it.

@@ -243,6 +243,37 @@ pub fn run_alerts(cfg: &Config, cache: &Cache, state: &mut State, dry: bool) -> 
     alerts
 }
 
+/// How long the daemon loop may sleep. `slots` are the pending reserved syncs (the planner
+/// already drops done and expired ones), so the earliest one is the deadline, even if it is
+/// already due: the loop can wake a hair early (sleep rounding, clock granularity), find the slot
+/// not yet due, and must not then skip past it to the next slot and oversleep by up to 15 s
+/// (which put a T-5s sync after liftoff). Rounded up so a wake is never early.
+pub fn sleep_before_next(slots: &[planner::Slot], now: chrono::DateTime<Utc>) -> std::time::Duration {
+    const IDLE: std::time::Duration = std::time::Duration::from_secs(15);
+    match slots.iter().map(|s| s.at).min() {
+        Some(at) if at <= now => std::time::Duration::ZERO,
+        Some(at) => {
+            let us = (at - now).num_microseconds().unwrap_or(i64::MAX) as u64;
+            IDLE.min(std::time::Duration::from_millis(us.div_ceil(1000)))
+        }
+        None => IDLE,
+    }
+}
+
+/// Sleep until wall-clock `deadline`, in steps of at most 1 s, re-reading the wall clock between
+/// steps. `thread::sleep` measures CLOCK_MONOTONIC, which stops during suspend and ignores clock
+/// steps (NTP), so one long sleep could wake up to 15 s after a reserved sync was due.
+fn sleep_until(deadline: chrono::DateTime<Utc>) {
+    loop {
+        let left = deadline - Utc::now();
+        if left <= Duration::zero() {
+            return;
+        }
+        let us = left.num_microseconds().unwrap_or(i64::MAX) as u64;
+        std::thread::sleep(std::time::Duration::from_micros(us).min(std::time::Duration::from_secs(1)));
+    }
+}
+
 pub fn run() -> Result<()> {
     let (cp, sp) = (paths::cache_file(), paths::state_file());
     let mut cache = store::load_cache(&cp);
@@ -289,12 +320,7 @@ pub fn run() -> Result<()> {
         // wake exactly for the next reserved sync (T-5s needs sub-second timing)
         let now = Utc::now();
         let slots = if unlimited(&cfg) { vec![] } else { reserved_slots(&cfg, &cache, &state, now) };
-        let mut sleep = std::time::Duration::from_secs(15);
-        if let Some(s) = slots.iter().find(|s| s.at > now) {
-            let ms = (s.at - now).num_milliseconds().max(50) as u64;
-            sleep = sleep.min(std::time::Duration::from_millis(ms));
-        }
-        std::thread::sleep(sleep);
+        sleep_until(now + Duration::from_std(sleep_before_next(&slots, now)).unwrap_or_default());
     }
 }
 
@@ -302,6 +328,22 @@ pub fn run() -> Result<()> {
 mod tests {
     use super::*;
     use crate::model::Launch;
+    #[test]
+    fn never_oversleeps_a_pending_sync() {
+        let at: chrono::DateTime<Utc> = "2026-10-20T17:55:00Z".parse().unwrap();
+        let slot = |kind, at| planner::Slot { launch_id: "x".into(), launch_name: "x".into(), kind, at };
+        let slots = vec![slot(planner::SyncKind::TMinus5m, at), slot(planner::SyncKind::TMinus60s, at + Duration::minutes(4))];
+        let us = |n: i64| at + Duration::microseconds(n);
+        // woke a hair early: sleep the rest (rounded up), never jump to the next slot's 15 s cap
+        assert_eq!(sleep_before_next(&slots, us(-200)), std::time::Duration::from_millis(1));
+        assert_eq!(sleep_before_next(&slots, us(-1_999_001)), std::time::Duration::from_millis(2000));
+        // the slot became due while the loop ran: go round immediately and run it
+        assert_eq!(sleep_before_next(&slots, us(150)), std::time::Duration::ZERO);
+        assert_eq!(sleep_before_next(&slots, at + Duration::seconds(30)), std::time::Duration::ZERO);
+        assert_eq!(sleep_before_next(&slots, at - Duration::minutes(10)), std::time::Duration::from_secs(15));
+        assert_eq!(sleep_before_next(&[], at), std::time::Duration::from_secs(15));
+    }
+
     #[test]
     fn failed_fetch_keeps_cache_and_says_so() {
         // nothing listens on port 1: a real ureq transport error, no network needed

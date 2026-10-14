@@ -110,10 +110,43 @@ at UTC "2026-10-20 17:00:00" "$BIN" fetch >/dev/null 2>&1
 check "HR T-10 alert, worded approximately" '~T-10m .*~9m \(~18:00 ±1h\)' "$(at UTC "2026-10-20 17:51:00" "$BIN" alerts --dry 2>&1)"
 check "HR launch gets the 4 reserved syncs" '^4 T-5m' "$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["sync"]; print(s.get("reserved"), s.get("next_label"))' "$XDG_CACHE_HOME/liftoff/launches.json")"
 : > "$W/srv/requests.log"
-# start just after the T-5m slot (validity 3 min): the first loop must run the sync, not a routine fetch
-at UTC "@2026-10-20 17:55:01" timeout 4 "$BIN" daemon > "$W/d3.log" 2>&1
-check "daemon runs the T-5m single-launch sync" 'sync T-5m .*: ok' "$(cat "$W/d3.log")"
+at UTC "@2026-10-20 17:54:58" timeout 4 "$BIN" daemon > "$W/d3.log" 2>&1
+check "daemon started 2 s before T-5m runs the sync on time" 'sync T-5m .*: ok' "$(cat "$W/d3.log")"
 check "sync hit /launches/e2e-1/" '^/launches/e2e-1/' "$(cat "$W/srv/requests.log")"
+
+echo "== reserved syncs are never overslept (daemon started 1-3 s before each slot; already running across it; clock jumps)"
+# A loop that wakes a hair early must not skip the due slot and sleep 15 s (that put T-5s after liftoff).
+# Each run gets 2.5 s of real time after its slot: an on-time sync needs well under 1 s.
+sync_run() {  # $1 = slot label, $2 = slot UTC time, $3 = seconds before it to start the daemon
+  fresh 2026-10-20T18:00:00Z MIN
+  "$BIN" config set notify.desktop false >/dev/null; "$BIN" config set notify.ntfy false >/dev/null
+  at UTC "2026-10-20 17:00:00" "$BIN" fetch >/dev/null 2>&1
+  local start; start=$(date -u -d "$2 UTC - $3 sec" '+%Y-%m-%d %H:%M:%S')
+  at UTC "@$start" timeout "$(( $3 + 2 )).5" "$BIN" daemon > "$W/sync.log" 2>&1
+  grep -E "^sync $1 .*: ok" "$W/sync.log" || tail -3 "$W/sync.log"
+}
+for slot in "T-5m|2026-10-20 17:55:00" "T-60s|2026-10-20 17:59:00" "T-5s|2026-10-20 17:59:55" "T\+90s|2026-10-20 18:01:30"; do
+  for k in 1 2 3; do
+    check "${slot%%|*} sync on time, daemon started ${k}s before" "^sync ${slot%%|*} .*: ok" "$(sync_run "${slot%%|*}" "${slot#*|}" "$k")"
+  done
+done
+check "daemon already running 20 s across T-5m syncs it" '^sync T-5m .*: ok' "$(sync_run T-5m "2026-10-20 17:55:00" 20)"
+# suspend/resume: the fake clock (offset file, re-read on every call) jumps while the daemon sleeps
+jump_run() {  # $1 = fake start (UTC), $2 = seconds to jump forward 1 s in, $3 = real seconds to run
+  fresh 2026-10-20T18:00:00Z MIN
+  "$BIN" config set notify.desktop false >/dev/null; "$BIN" config set notify.ntfy false >/dev/null
+  at UTC "2026-10-20 17:00:00" "$BIN" fetch >/dev/null 2>&1
+  local off; off=$(( $(date -u -d "$1 UTC" +%s) - $(date +%s) ))
+  printf '%+d' "$off" > "$W/ft"
+  TZ=UTC LD_PRELOAD=$FT FAKETIME_TIMESTAMP_FILE="$W/ft" FAKETIME_NO_CACHE=1 FAKETIME_DONT_FAKE_MONOTONIC=1 \
+    timeout "$3" "$BIN" daemon > "$W/jump.log" 2>&1 &
+  local pid=$!; sleep 1; printf '%+d' "$(( off + $2 ))" > "$W/ft"; wait "$pid"
+  cat "$W/jump.log"
+}
+out=$(jump_run "2026-10-20 17:54:40" 60 4)   # suspended across T-5m, resumed inside its 3-min validity
+check "resume after T-5m (still valid): sync runs right away" '^sync T-5m .*: ok' "$out"
+out=$(jump_run "2026-10-20 17:54:40" 255 6)  # resumed past T-5m validity, 2 s before T-60s
+check "resume past T-5m validity: next sync (T-60s) still on time" '^sync T-60s .*: ok' "$out"
 
 echo "== failed fetch is reported as failed"
 fresh 2026-10-20T18:00:00Z MIN
