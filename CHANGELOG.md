@@ -2,7 +2,10 @@
 
 ## 0.1.5 (2026-10-14)
 
+> Note: the `v0.1.5` tag was first pushed at 0d6f4d3, but CI failed on four `rustls` security advisories published that day (RUSTSEC-2026-0346 to 0349), so no 0.1.5 release or binaries were ever built from it. The tag was then moved to the commit that updates `rustls` to 0.23.46.
+
 **Security**
+- Updated `rustls` to 0.23.46 (RUSTSEC-2026-0346, -0347, -0348, -0349).
 - The installer no longer passes your private ntfy topic as a command argument (to
   `liftoff config set`, `qrencode` and a `gum` prompt), where any local user could read it
   from the process list. Secrets now go through `liftoff config set-secret <key>` on stdin;
