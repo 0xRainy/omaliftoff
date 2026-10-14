@@ -7,25 +7,26 @@ use chrono::{DateTime, Duration, Local, Utc};
 /// More than this many new launches in one fetch → one summary notification.
 pub const BATCH_OVER: usize = 3;
 
-fn precision_label(p: &str) -> &'static str {
-    match p {
-        "SEC" | "MIN" | "" => "",
-        "HR" => " (±hour)",
-        "HALF" | "TOD" => " (time of day TBD)",
-        "DAY" => " (day)",
-        "W" => " (week)",
-        "M" => " (month)",
-        "Q" => " (quarter)",
-        "H1" | "H2" => " (half-year)",
-        "Y" => " (year)",
-        _ => " (approx.)",
+/// NET text at the precision LL2 actually knows, e.g. "Dec 30 17:00", "Dec 30", "Dec 2026", "Q4 2026", "2026".
+fn when_text(l: &Launch) -> String {
+    use chrono::Datelike;
+    let t = l.net.with_timezone(&Local);
+    match l.net_precision.as_str() {
+        "SEC" | "MIN" | "" => t.format("%b %-d %H:%M").to_string(),
+        "HR" => format!("{} (±1h)", t.format("%b %-d ~%H:00")),
+        "HALF" | "TOD" | "DAY" => t.format("%b %-d").to_string(),
+        "W" => format!("week of {}", t.format("%b %-d")),
+        "M" => t.format("%b %Y").to_string(),
+        "Q" => format!("Q{} {}", (t.month() - 1) / 3 + 1, t.year()),
+        "H1" | "H2" => format!("{} {}", l.net_precision, t.year()),
+        "Y" => t.year().to_string(),
+        _ => format!("~{}", t.format("%b %-d")),
     }
 }
 
 pub fn describe(l: &Launch) -> String {
-    let when = l.net.with_timezone(&Local).format("%b %-d %H:%M");
     let mission = if l.mission.is_empty() { l.name.as_str() } else { l.mission.as_str() };
-    format!("{} · {} · NET {}{}", l.short_rocket(), mission, when, precision_label(&l.net_precision))
+    format!("{} · {} · NET {}", l.short_rocket(), mission, when_text(l))
 }
 
 /// Updates `state.seen`; returns the alerts to send (0, 1 per launch, or 1 summary).
@@ -96,6 +97,22 @@ mod tests {
     }
     fn cfg() -> NotifyConfig {
         NotifyConfig::default()
+    }
+
+    #[test]
+    fn coarse_net_shows_only_known_precision() {
+        use chrono::TimeZone;
+        let mut x = l("a", "SpaceX");
+        x.net = Utc.with_ymd_and_hms(2026, 12, 30, 23, 0, 0).unwrap();
+        let y = x.net.with_timezone(&Local).format("%Y").to_string();
+        for (p, bad) in [("Y", "(year)"), ("M", "(month)"), ("Q", "(quarter)")] {
+            x.net_precision = p.into();
+            let d = describe(&x);
+            assert!(!d.contains(bad) && !d.contains(':'), "{p}: {d}");
+            assert!(d.contains(&y), "{p}: {d}");
+        }
+        x.net_precision = "Y".into();
+        assert!(describe(&x).ends_with(&format!("NET {y}")));
     }
 
     #[test]
