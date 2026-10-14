@@ -157,9 +157,9 @@ pub fn doctor() -> Result<()> {
                 Some(age < 45),
                 "cache",
                 format!(
-                    "{} launches, fetched {age} min ago{}",
+                    "{} launches, last successful fetch {age} min ago{}",
                     cache.launches.len(),
-                    cache.last_error.as_ref().map(|e| format!(" (last error: {e})")).unwrap_or_default()
+                    cache.last_error.as_ref().map(|e| format!("; latest attempt failed: {e}")).unwrap_or_default()
                 ),
             );
         }

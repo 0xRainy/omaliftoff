@@ -20,7 +20,7 @@ use std::time::{Instant, SystemTime};
 
 enum Msg {
     News(String, Vec<Article>),
-    Fetched(Result<Cache, String>),
+    Fetched(Result<(Cache, daemon::Fetch), String>),
     Telemetry(Option<(f64, f64)>),
     Patch(String, Option<image::RgbaImage>),
     Plan(String, Option<FlightPlan>),
@@ -2073,7 +2073,8 @@ pub fn run() -> Result<()> {
                         app.mtime = None;
                         match r {
                             Err(e) => app.toast(format!("fetch failed: {e}")),
-                            Ok(c) if c.sync.note_at.is_some_and(|t| Utc::now() - t < Duration::seconds(5)) => app.toast(c.sync.note.clone()),
+                            Ok((c, f @ daemon::Fetch::Failed(_))) => app.toast(daemon::fetch_summary(&f, &c, Utc::now())),
+                            Ok((c, _)) if c.sync.note_at.is_some_and(|t| Utc::now() - t < Duration::seconds(5)) => app.toast(c.sync.note.clone()),
                             Ok(_) => {}
                         }
                     }

@@ -38,6 +38,14 @@ Fixes.
   AM/PM, week, fiscal-year and decade NETs are shown as approximate ("~") since LL2 data doesn't confirm
   their encoding.
 - The panel's NET line no longer shows a fake time plus the raw precision code.
+- **A failed LL2 fetch was logged as a success**: on a timeout the daemon wrote
+  "fetched 40 launches (…timed out…)", counting the launches it still had in the cache. It now writes
+  "fetch failed: <reason> (GET <url>); keeping 40 cached launches (fetched 42m ago)", and `liftoff fetch` exits
+  non-zero with the same line. The TUI's manual refresh shows it as a toast, and doctor says "last successful
+  fetch … ; latest attempt failed: …". Successful fetches are logged as before. The cache's fetch time only
+  moves on success (unchanged), and a failed attempt still counts against the local hourly budget, since LL2
+  may have counted it.
+- HTTP errors (LL2, news, ntfy) no longer print the URL twice; the reason comes first, then the request once.
 - The setup wizard's ntfy subscribe hint is simpler: "Subscribe in the ntfy app using topic: '<topic>'"
   (plus a QR code); for a custom server it also names the server to add in the app.
 - When the setup wizard's test push fails, it now says why (e.g. "Connection refused",

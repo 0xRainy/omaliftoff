@@ -47,7 +47,11 @@ fn main() -> Result<()> {
         "tui" => tui::run(),
         "fetch" => {
             let cfg = Config::load()?;
-            let c = daemon::fetch_and_save(&cfg, true)?;
+            let (c, f) = daemon::fetch_and_save(&cfg, true)?;
+            if let daemon::Fetch::Failed(_) = f {
+                // exit non-zero: nothing new was fetched (the cache is unchanged)
+                anyhow::bail!("{}", daemon::fetch_summary(&f, &c, Utc::now()));
+            }
             println!(
                 "{} launches from {} → {}{}",
                 c.launches.len(),

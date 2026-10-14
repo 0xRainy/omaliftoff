@@ -15,8 +15,36 @@ fn unlimited(cfg: &Config) -> bool {
     cfg.api_base.contains("lldev") || !cfg.api_key.is_empty()
 }
 
-/// One fetch cycle. Returns Ok(true) if LL2 was actually called.
-pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: bool) -> Result<bool> {
+/// What one fetch cycle did. `Failed` keeps the previous launches in the cache, so callers must
+/// not report `cache.launches.len()` as freshly fetched.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Fetch {
+    /// LL2 was not called (budget, throttle or reserved syncs).
+    Skipped,
+    /// LL2 answered; this many launches were stored.
+    Fetched(usize),
+    /// LL2 was called and failed; the reason (also in `cache.last_error`).
+    Failed(String),
+}
+
+/// One-line summary of a fetch for logs and `liftoff fetch`. Success lines are unchanged
+/// from earlier versions; a failure says so and describes the cache it fell back to.
+pub fn fetch_summary(f: &Fetch, cache: &Cache, now: chrono::DateTime<Utc>) -> String {
+    match f {
+        Fetch::Skipped => "fetch skipped".into(),
+        Fetch::Fetched(n) => format!("fetched {n} launches (ok)"),
+        Fetch::Failed(reason) => {
+            let age = cache
+                .fetched_at
+                .map(|t| format!("fetched {} ago", api::human_duration((now - t).num_seconds().max(0))))
+                .unwrap_or_else(|| "never fetched".into());
+            format!("fetch failed: {reason}; keeping {} cached launches ({age})", cache.launches.len())
+        }
+    }
+}
+
+/// One fetch cycle.
+pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: bool) -> Result<Fetch> {
     let now = Utc::now();
     state.budget.prune(now);
     // Never eat into calls reserved for final pre-launch syncs.
@@ -26,13 +54,13 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
             let next = planner::next_unreserved(&state.budget.calls, &slots, cfg.max_calls_per_hour, now, now);
             cache.sync.note = format!("refresh held: calls reserved for final syncs; next free {}", next.with_timezone(&chrono::Local).format("%H:%M:%S"));
             cache.sync.note_at = Some(now);
-            return Ok(false);
+            return Ok(Fetch::Skipped);
         }
     }
     if !unlimited(cfg) && state.budget.remaining(now, cfg.max_calls_per_hour) == 0 {
         cache.last_error =
             Some(format!("local budget exhausted ({} calls/hr); next at {}", cfg.max_calls_per_hour, state.budget.next_allowed(now, cfg.max_calls_per_hour)));
-        return Ok(false);
+        return Ok(Fetch::Skipped);
     }
     // api-throttle is free; use it to avoid burning a call into a 429.
     match api::fetch_throttle(cfg) {
@@ -41,7 +69,7 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
             cache.throttle = t;
             if blocked {
                 cache.last_error = Some(format!("LL2 throttled; retry in {}s", cache.throttle.next_use_secs));
-                return Ok(false);
+                return Ok(Fetch::Skipped);
             }
         }
         Err(e) if verbose => eprintln!("api-throttle: {e}"),
@@ -49,23 +77,24 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
     }
     state.budget.record(now);
     let res = api::fetch_upcoming_timed(cfg);
-    match res {
+    let outcome = match res {
         Ok((launches, skew)) => {
             if let Some(ms) = skew {
                 cache.sync.add_skew(ms);
             }
+            let n = launches.len();
             cache.launches = launches;
             cache.fetched_at = Some(now);
             cache.last_error = None;
             cache.throttle.current_use += 1;
+            Fetch::Fetched(n)
         }
         Err(e) => {
+            // launches and fetched_at stay as they were: the cache still describes the last success
             cache.last_error = Some(e.to_string());
-            if verbose {
-                eprintln!("fetch: {e}");
-            }
+            Fetch::Failed(e.to_string())
         }
-    }
+    };
     cache.version = CACHE_VERSION;
     cache.source = cfg.api_base.clone();
     cache.starred = cfg.starred_providers.clone();
@@ -89,7 +118,7 @@ pub fn fetch_once(cfg: &Config, cache: &mut Cache, state: &mut State, verbose: b
         cache.news_fetched_at = Some(now);
     }
     refresh_flight_plans(cfg, cache, verbose);
-    Ok(true)
+    Ok(outcome)
 }
 
 /// SpaceX flight plans (content.spacex.com; separate host, not LL2 budget).
@@ -180,15 +209,15 @@ fn finish(cfg: &Config, cache: &mut Cache, state: &State) {
     }
 }
 
-pub fn fetch_and_save(cfg: &Config, verbose: bool) -> Result<Cache> {
+pub fn fetch_and_save(cfg: &Config, verbose: bool) -> Result<(Cache, Fetch)> {
     let (cp, sp) = (paths::cache_file(), paths::state_file());
     let mut cache = store::load_cache(&cp);
     let mut state = store::load_state(&sp);
-    fetch_once(cfg, &mut cache, &mut state, verbose)?;
+    let f = fetch_once(cfg, &mut cache, &mut state, verbose)?;
     finish(cfg, &mut cache, &state);
     store::save_json(&cp, &cache)?;
     store::save_json(&sp, &state)?;
-    Ok(cache)
+    Ok((cache, f))
 }
 
 /// Send due alerts for the launches in `cache`; persist dedupe state.
@@ -238,14 +267,10 @@ pub fn run() -> Result<()> {
             let due = cache.next_fetch_at.is_none_or(|t| now >= t) || first;
             if due || (requested && min_gap_ok) {
                 match fetch_once(&cfg, &mut cache, &mut state, true) {
-                    Ok(true) => eprintln!(
-                        "fetched {} launches ({}), budget used {}/{}",
-                        cache.launches.len(),
-                        cache.last_error.as_deref().unwrap_or("ok"),
-                        state.budget.used(now),
-                        cfg.max_calls_per_hour
-                    ),
-                    Ok(false) if requested => eprintln!("manual refresh refused: {}", cache.sync.note),
+                    Ok(f @ (Fetch::Fetched(_) | Fetch::Failed(_))) => {
+                        eprintln!("{}, budget used {}/{}", fetch_summary(&f, &cache, now), state.budget.used(now), cfg.max_calls_per_hour)
+                    }
+                    Ok(Fetch::Skipped) if requested => eprintln!("manual refresh refused: {}", cache.sync.note),
                     _ => {}
                 }
                 // a refused manual refresh is dropped (served from cache), not queued
@@ -277,6 +302,35 @@ pub fn run() -> Result<()> {
 mod tests {
     use super::*;
     use crate::model::Launch;
+    #[test]
+    fn failed_fetch_keeps_cache_and_says_so() {
+        // nothing listens on port 1: a real ureq transport error, no network needed
+        let cfg = Config { api_base: "http://127.0.0.1:1/2.3.0".into(), ..Default::default() };
+        let then: chrono::DateTime<Utc> = Utc::now() - Duration::minutes(42);
+        let old = Launch { id: "old".into(), net: Utc::now() - Duration::days(2), ..Default::default() };
+        let mut cache = Cache {
+            launches: vec![old.clone(); 40],
+            fetched_at: Some(then),
+            news_fetched_at: Some(Utc::now()),
+            flight_plans_fetched_at: Some(Utc::now()),
+            ..Default::default()
+        };
+        let mut state = State::default();
+        let f = fetch_once(&cfg, &mut cache, &mut state, false).unwrap();
+        let Fetch::Failed(reason) = &f else { panic!("expected Failed, got {f:?}") };
+        assert_eq!(cache.launches.len(), 40, "cached launches kept");
+        assert_eq!(cache.fetched_at, Some(then), "fetched_at only moves on success");
+        assert_eq!(cache.last_error.as_deref(), Some(reason.as_str()));
+        assert_eq!(state.budget.calls.len(), 1, "the attempt is counted (conservative)");
+        let line = fetch_summary(&f, &cache, Utc::now());
+        assert!(line.starts_with("fetch failed: "), "{line}");
+        assert!(line.ends_with("; keeping 40 cached launches (fetched 42m ago)"), "{line}");
+        assert!(!line.contains("fetched 40 launches"), "{line}");
+        assert_eq!(line.matches("127.0.0.1:1/2.3.0/launches").count(), 1, "URL once: {line}");
+        assert_eq!(fetch_summary(&Fetch::Fetched(40), &cache, Utc::now()), "fetched 40 launches (ok)");
+        let never = Cache::default();
+        assert!(fetch_summary(&Fetch::Failed("x".into()), &never, Utc::now()).ends_with("keeping 0 cached launches (never fetched)"));
+    }
     #[test]
     fn sync_reanchors_net() {
         let net: chrono::DateTime<Utc> = "2026-10-13T18:00:00Z".parse().unwrap();
