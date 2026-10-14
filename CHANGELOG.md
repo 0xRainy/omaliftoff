@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.4 (2026-10-13)
+
+Fixes.
+
+- **Lead, delayed and hold alerts showed a fake time for coarse NETs**: a launch LL2 only knows to the day
+  got e.g. "Liftoff in 23h 14m (17:00)" or "New NET Thu Oct 15 17:00". These now read
+  "Liftoff NET Oct 14 (~1 day)", "New NET Oct 15 (~2 days)" and "on hold. NET Oct 15".
+- **TUI showed fake times/days for coarse NETs**: the detail and hero NET lines and the launch list now show
+  only the known precision ("2026", "Dec 2026", "Q4 2026", "Nov 6") instead of "Wed Dec 30 17:00 (Y)".
+- Month/quarter/year NETs use the UTC calendar, so a launch LL2 dates 2027-01-01 00:00 UTC no longer shows
+  as 2026 west of UTC. Bar, TUI and alerts share the same text.
+
 ## 0.1.3 (2026-10-13)
 
 Fixes.
