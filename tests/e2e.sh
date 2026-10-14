@@ -148,6 +148,21 @@ check "resume after T-5m (still valid): sync runs right away" '^sync T-5m .*: ok
 out=$(jump_run "2026-10-20 17:54:40" 255 6)  # resumed past T-5m validity, 2 s before T-60s
 check "resume past T-5m validity: next sync (T-60s) still on time" '^sync T-60s .*: ok' "$out"
 
+echo "== LL2 budget over a launch window (T-65m..T+5m at 120x speed): <=14 calls/rolling hour, all 4 syncs"
+fresh 2026-10-20T18:00:00Z MIN
+"$BIN" config set notify.desktop false >/dev/null; "$BIN" config set notify.ntfy false >/dev/null
+: > "$W/srv/requests.tlog"; t0=$(date +%s.%N)
+TZ=UTC LD_PRELOAD=$FT FAKETIME="@$(date -u -d '2026-10-20 16:55:00 UTC' '+%Y-%m-%d %H:%M:%S') x120" timeout 36 "$BIN" daemon > "$W/win.log" 2>&1
+win=$(python3 -c '
+import sys
+t0 = float(sys.argv[2]); base = 16 * 3600 + 55 * 60   # fake seconds of day at start
+ts = [base + (float(l.split(" ", 1)[0]) - t0) * 120 for l in open(sys.argv[1]) if l.split(" ", 1)[1].startswith("/launches")]
+print("max/h", max(sum(1 for u in ts if t - 3600 < u <= t) for t in ts), "total", len(ts))
+' "$W/srv/requests.tlog" "$t0")
+check "LL2 calls per rolling hour stay <= 14 ($win)" '^max/h ([0-9]|1[0-4]) ' "$win"
+for k in "T-5m" "T-60s" "T-5s" "T\+90s"; do check "$k sync ran in the window" "^sync $k .*: ok" "$(cat "$W/win.log")"; done
+check "no refresh held/refused in the window" '^ok$' "$(grep -qE 'held|refused|exhausted' "$W/win.log" && echo held || echo ok)"
+
 echo "== failed fetch is reported as failed"
 fresh 2026-10-20T18:00:00Z MIN
 at UTC "2026-10-19 10:00:00" "$BIN" fetch >/dev/null 2>&1

@@ -6,9 +6,9 @@ Control files in <dir> (read on every request):
   prec.txt    LL2 net_precision abbrev (default MIN)
   status.txt  LL2 status id (default 1 = Go)
   fail.txt    if present: /launches/* answer 503
-Logs: requests.log (GETs), ntfy.log (every POST: path, Authorization, JSON body).
+Logs: requests.log (GETs), requests.tlog (real epoch + GET), ntfy.log (every POST: path, Authorization, JSON body).
 """
-import copy, http.server, json, os, sys
+import copy, http.server, json, os, sys, time
 
 D = sys.argv[1]
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +50,8 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         with open(os.path.join(D, "requests.log"), "a") as f:
             f.write(self.path + "\n")
+        with open(os.path.join(D, "requests.tlog"), "a") as f:
+            f.write("%.3f %s\n" % (time.time(), self.path))
         if self.path.startswith("/api-throttle"):
             return self.send(200, {"your_request_limit": 15, "limit_frequency_secs": 3600, "current_use": 0, "next_use_secs": 0, "ident": "e2e"})
         if self.path.startswith("/launches") and os.path.exists(os.path.join(D, "fail.txt")):
