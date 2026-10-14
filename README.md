@@ -93,7 +93,7 @@ rm -rf ~/.config/liftoff ~/.cache/liftoff ~/.local/state/liftoff ~/.local/share/
 |---|---|---|
 | Omarchy Quattro shell | bar widget | (Omarchy) |
 | systemd user session | background daemon | (base) |
-| `curl` | prebuilt download, ntfy test | `curl` |
+| `curl` | installer: prebuilt binary + checksum download (ntfy pushes are sent by liftoff itself) | `curl` |
 | `notify-send` + a notification daemon | desktop alerts | `libnotify`, `mako` (Omarchy default) |
 | Rust toolchain | only when building from source | `rust` or rustup |
 | Nerd Font | rocket glyph | JetBrainsMono Nerd Font (Omarchy default) |
