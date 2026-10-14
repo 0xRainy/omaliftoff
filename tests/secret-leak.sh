@@ -22,11 +22,13 @@ export HOME="$W/home" XDG_CONFIG_HOME="$W/home/.config" XDG_DATA_HOME="$W/home/.
 mkdir -p "$HOME/.local/bin" "$W/shim"
 cp "$BIN_SRC" "$HOME/.local/bin/liftoff"
 
-# mock ntfy server (test push target); records what it receives
-PORT=$((20000 + RANDOM % 20000))
-python3 - "$PORT" "$W/ntfy.log" <<'PY' &
-import http.server, sys
-port, log = int(sys.argv[1]), sys.argv[2]
+# mock ntfy server (test push target); records what it receives. It binds port 0 (the kernel
+# picks a free port, so no collision with other listeners) and only then writes the port to
+# $W/port: the file appearing means the socket is already listening, so the wizard's test push
+# can't race the server's startup.
+python3 - "$W/port" "$W/ntfy.log" <<'PY' &
+import http.server, os, sys
+portfile, log = sys.argv[1], sys.argv[2]
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_POST(self):
@@ -34,9 +36,18 @@ class H(http.server.BaseHTTPRequestHandler):
         open(log, "ab").write(self.path.encode() + b" " + body + b"\n")
         self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
     do_GET = do_POST
-http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)   # listening from here on
+with open(portfile + ".tmp", "w") as f: f.write(str(srv.server_address[1]))
+os.rename(portfile + ".tmp", portfile)              # atomic: never a half-written port
+srv.serve_forever()
 PY
 MOCK=$!
+# wait for the readiness handshake (or the mock dying), never a fixed sleep
+while [[ ! -s $W/port ]]; do
+  kill -0 "$MOCK" 2>/dev/null || { echo "secret-leak: mock ntfy server failed to start" >&2; exit 2; }
+  sleep 0.05   # poll interval only; the condition is the port file
+done
+PORT=$(<"$W/port")
 
 # scripted gum: answers by prompt header; never needs a terminal
 cat > "$W/shim/gum" <<GUM
@@ -85,7 +96,7 @@ mode=$(stat -c %a "$cfg"); [[ $mode == 600 ]] || { echo "LEAK: $cfg is mode $mod
 while IFS= read -r f; do [[ $f == "$cfg" ]] || check "file $f" "$f"; done < <(grep -rlF -e "$TOPIC" -e "$TOKEN" "$HOME" 2>/dev/null || true)
 # the token must never be printed; the topic is shown to the user once (they need it to subscribe)
 for t in fresh keep; do grep -qF "$TOKEN" "$W/out.$t" && { echo "LEAK: token printed to the terminal ($t)"; fail=1; }; done
-grep -qF "$TOPIC" "$W/ntfy.log" || { echo "secret-leak: test push did not reach the mock ntfy server"; fail=1; }
+grep -qsF "$TOPIC" "$W/ntfy.log" || { echo "secret-leak: test push did not reach the mock ntfy server (port $PORT); installer output:"; sed 's/^/    /' "$W/out.fresh"; fail=1; }
 
 if [[ $fail == 0 ]]; then echo "secret-leak: OK (no secret in argv, env, logs or other files; config 0600)"; fi
 exit $fail
