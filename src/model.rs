@@ -1,5 +1,5 @@
 //! Normalised data model shared by daemon, TUI and (via JSON) the shell plugin.
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -52,7 +52,9 @@ pub struct Launch {
     /// "go" | "tbc" | "tbd" | "hold" | "flight" | "success" | "failure"
     pub status_class: String,
     pub net: DateTime<Utc>,
-    /// LL2 net_precision abbrev: SEC, MIN, HR, HALF, TOD, DAY, W, M, Q, H1, Y, ...
+    /// LL2 net_precision abbrev (`net_precision.abbrev`, not the name), as listed by
+    /// /2.3.0/config/net_precisions/: SEC MIN HR AM PM DAY WK M Q1-Q4 H1 H2 Y FY DEC.
+    /// Interpret it through [`Launch::precision`].
     pub net_precision: String,
     pub window_start: Option<DateTime<Utc>>,
     pub window_end: Option<DateTime<Utc>>,
@@ -165,7 +167,136 @@ impl Launch {
     }
     /// True when the NET is precise enough for a ticking clock.
     pub fn precise(&self) -> bool {
-        matches!(self.net_precision.as_str(), "SEC" | "MIN" | "HR" | "")
+        matches!(self.precision(), Precision::Exact | Precision::Hour)
+    }
+    pub fn precision(&self) -> Precision {
+        Precision::from_abbrev(&self.net_precision)
+    }
+
+    /// The NET's calendar date. Exact/hour NETs are instants, so this is the local date.
+    /// Day and coarser NETs are calendar *labels*: their date is the UTC date, in every zone.
+    ///
+    /// Evidence (LL2 2.3.0 responses, 2026-10-14; 557 launches from lldev + ll upcoming):
+    /// DAY nets are all `YYYY-MM-DDT00:00:00Z` of the day itself (9/9, e.g. Amazon Leo LV-01
+    /// "net": "2026-10-29T00:00:00Z"); M/Q1-Q4/H1/H2/Y nets are 00:00Z of (usually) the last day
+    /// of the period (Y 96/96 "12-31T00:00:00Z", Q4 18/18 "12-31", H1 6/6 "06-30"; Q1/Q2 have a
+    /// few non-period-end dates, so quarter/half come from the code, not the date); FY 6/6
+    /// "2027-06-30T00:00:00Z" (US launches). No AM, PM, WK or DEC launch exists in the data, so
+    /// those encodings are unverified and rendered conservatively (approximate, "~").
+    pub fn net_date(&self) -> NaiveDate {
+        if self.precise() { self.net.with_timezone(&Local).date_naive() } else { self.net.date_naive() }
+    }
+
+    /// THE only place a NET becomes text (alerts, TUI, bar, status). Converts to local time
+    /// only for exact/hour precision; day and coarser use LL2's UTC calendar fields.
+    pub fn net_text(&self, f: NetFmt) -> String {
+        use Precision as P;
+        let t = self.net.with_timezone(&Local);
+        let u = self.net;
+        let day = |long: bool| u.format(if long { "%a %b %-d" } else { "%b %-d" }).to_string();
+        match (self.precision(), f) {
+            (P::Exact, NetFmt::Clock) => t.format("%H:%M").to_string(),
+            (P::Exact, NetFmt::Long) => t.format("%a %b %-d %H:%M").to_string(),
+            (P::Exact, _) => t.format("%b %-d %H:%M").to_string(),
+            (P::Hour, NetFmt::Clock) => t.format("~%H:%M ±1h").to_string(),
+            (P::Hour, NetFmt::Long) => t.format("%a %b %-d ~%H:%M ±1h").to_string(),
+            (P::Hour, _) => t.format("%b %-d ~%H:00 (±1h)").to_string(),
+            (P::Day, NetFmt::Column) => day(false),
+            (P::Day, f) => day(f == NetFmt::Long),
+            // AM/PM (LL2 docs: "expected in the morning/afternoon (local time)", i.e. launch-site
+            // time), WK and unknown codes: no sample in LL2 data, so the timestamp's day is not
+            // verified -> approximate date only, no weekday.
+            (P::Morning | P::Afternoon | P::Week | P::Unknown, NetFmt::Column) => format!("~{}", day(false)),
+            (P::Morning, _) => format!("~{} (morning, site time)", day(false)),
+            (P::Afternoon, _) => format!("~{} (afternoon, site time)", day(false)),
+            (P::Week, _) => format!("~{} (week)", day(false)),
+            (P::Unknown, _) => format!("~{}", day(false)),
+            (P::Month, _) => u.format("%b %Y").to_string(),
+            (P::Quarter(0), _) => format!("Q{} {}", (u.month() - 1) / 3 + 1, u.year()),
+            (P::Quarter(q), _) => format!("Q{q} {}", u.year()),
+            (P::Half(h), _) => format!("H{h} {}", u.year()),
+            (P::Year, _) => u.year().to_string(),
+            // FY: "fiscal year of the launch country"; which FY a timestamp denotes is not
+            // documented (US samples sit at 06-30) -> approximate calendar year only.
+            (P::FiscalYear, NetFmt::Column) => format!("~{}", u.year()),
+            (P::FiscalYear, _) => format!("~{} (fiscal year)", u.year()),
+            // DEC: no sample in LL2 data -> approximate.
+            (P::Decade, _) => format!("~{}s", u.year() / 10 * 10),
+        }
+    }
+}
+
+/// How much room a NET label gets. Coarse precisions ignore the difference where it
+/// would add invented detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetFmt {
+    /// "Nov 4 20:30", "Nov 7", "Q4 2026" (alerts)
+    Short,
+    /// "Wed Nov 4 20:30", "Sat Nov 7" (TUI detail/hero, bar, long alert form)
+    Long,
+    /// "20:30" for exact; coarse NETs fall back to their label
+    Clock,
+    /// at most 9 chars (TUI list column)
+    Column,
+}
+
+/// LL2 NET precision, from `net_precision.abbrev` (LL2 2.3.0 /config/net_precisions/).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Precision {
+    /// SEC, MIN (and missing → treated as MIN by the parser)
+    Exact,
+    Hour,
+    /// AM / PM: morning / afternoon of the day (launch-site local)
+    Morning,
+    Afternoon,
+    Day,
+    Week,
+    Month,
+    /// Q1..Q4
+    Quarter(u8),
+    /// H1 / H2
+    Half(u8),
+    Year,
+    FiscalYear,
+    Decade,
+    /// Anything else: shown as an approximate date, never with a time.
+    Unknown,
+}
+
+impl Precision {
+    pub fn from_abbrev(a: &str) -> Self {
+        match a {
+            "SEC" | "MIN" | "" => Self::Exact,
+            "HR" => Self::Hour,
+            "AM" => Self::Morning,
+            "PM" => Self::Afternoon,
+            // "HALF"/"TOD" were never LL2 codes; kept harmless as day precision
+            "DAY" | "HALF" | "TOD" => Self::Day,
+            // "W" is a legacy alias of LL2's "WK"
+            "WK" | "W" => Self::Week,
+            "M" => Self::Month,
+            "Q1" => Self::Quarter(1),
+            "Q2" => Self::Quarter(2),
+            "Q3" => Self::Quarter(3),
+            "Q4" => Self::Quarter(4),
+            // legacy bare "Q": quarter derived from the date
+            "Q" => Self::Quarter(0),
+            "H1" => Self::Half(1),
+            "H2" => Self::Half(2),
+            "Y" => Self::Year,
+            "FY" => Self::FiscalYear,
+            "DEC" => Self::Decade,
+            _ => Self::Unknown,
+        }
+    }
+    /// 0 exact, 1 hour, 2 within a day, 3 coarser (used by alert gating).
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Exact => 0,
+            Self::Hour => 1,
+            Self::Morning | Self::Afternoon | Self::Day => 2,
+            _ => 3,
+        }
     }
 }
 
@@ -327,5 +458,56 @@ mod tests {
         assert!(next_milestone(&e, 600).is_none());
         assert_eq!(fmt_rel(-125), "T-02:05");
         assert_eq!(fmt_rel(3725), "T+01:02:05");
+    }
+}
+
+#[cfg(test)]
+mod net_text_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    /// Coarse NETs are calendar labels: their text must be byte-identical in every zone.
+    /// Run under TZ=America/Phoenix, UTC and Asia/Tokyo (CI/test script); any `Local`
+    /// conversion of a coarse NET makes one of them fail. Instants are the real LL2 encoding
+    /// (00:00Z) plus 23:59Z to catch the other direction.
+    #[test]
+    fn coarse_net_text_is_timezone_independent() {
+        let at = |s: &str| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ").unwrap().and_utc();
+        let cases: &[(&str, &str, [&str; 4])] = &[
+            // code, net, [Short, Long, Clock, Column]
+            ("DAY", "2026-11-07T00:00:00Z", ["Nov 7", "Sat Nov 7", "Nov 7", "Nov 7"]),
+            ("DAY", "2026-11-07T23:59:00Z", ["Nov 7", "Sat Nov 7", "Nov 7", "Nov 7"]),
+            ("M", "2026-12-31T00:00:00Z", ["Dec 2026", "Dec 2026", "Dec 2026", "Dec 2026"]),
+            ("Q4", "2026-12-31T00:00:00Z", ["Q4 2026", "Q4 2026", "Q4 2026", "Q4 2026"]),
+            ("Q1", "2027-01-01T00:00:00Z", ["Q1 2027", "Q1 2027", "Q1 2027", "Q1 2027"]),
+            ("H1", "2027-06-30T00:00:00Z", ["H1 2027", "H1 2027", "H1 2027", "H1 2027"]),
+            ("Y", "2026-12-31T00:00:00Z", ["2026", "2026", "2026", "2026"]),
+            ("Y", "2027-01-01T00:00:00Z", ["2027", "2027", "2027", "2027"]),
+            ("FY", "2027-06-30T00:00:00Z", ["~2027 (fiscal year)", "~2027 (fiscal year)", "~2027 (fiscal year)", "~2027"]),
+            ("DEC", "2029-12-31T00:00:00Z", ["~2020s", "~2020s", "~2020s", "~2020s"]),
+            ("AM", "2026-11-03T00:00:00Z", ["~Nov 3 (morning, site time)", "~Nov 3 (morning, site time)", "~Nov 3 (morning, site time)", "~Nov 3"]),
+            ("PM", "2026-11-03T23:59:00Z", ["~Nov 3 (afternoon, site time)", "~Nov 3 (afternoon, site time)", "~Nov 3 (afternoon, site time)", "~Nov 3"]),
+            ("WK", "2026-11-09T00:00:00Z", ["~Nov 9 (week)", "~Nov 9 (week)", "~Nov 9 (week)", "~Nov 9"]),
+        ];
+        for (code, net, want) in cases {
+            let l = Launch { net: at(net), net_precision: (*code).into(), ..Default::default() };
+            for (f, w) in [NetFmt::Short, NetFmt::Long, NetFmt::Clock, NetFmt::Column].iter().zip(want) {
+                assert_eq!(l.net_text(*f), *w, "{code} {net} {f:?}");
+            }
+            assert!(l.net_text(NetFmt::Column).chars().count() <= 9, "{code}");
+            assert_eq!(l.net_date(), at(net).date_naive(), "{code}");
+        }
+    }
+
+    #[test]
+    fn exact_and_hour_are_local_instants() {
+        let net = Utc.with_ymd_and_hms(2026, 11, 5, 3, 30, 0).unwrap();
+        let t = net.with_timezone(&Local);
+        let l = Launch { net, net_precision: "MIN".into(), ..Default::default() };
+        assert_eq!(l.net_text(NetFmt::Clock), t.format("%H:%M").to_string());
+        assert_eq!(l.net_text(NetFmt::Long), t.format("%a %b %-d %H:%M").to_string());
+        assert_eq!(l.net_date(), t.date_naive());
+        let h = Launch { net, net_precision: "HR".into(), ..Default::default() };
+        assert!(h.net_text(NetFmt::Clock).ends_with("±1h"));
     }
 }

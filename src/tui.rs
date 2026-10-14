@@ -824,20 +824,16 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     if let Some(w) = &l.weather_concerns {
         lines.push(Line::from(Span::styled(format!("weather: {w}"), app.c(DIM))));
     } else {
-        lines.push(Line::from(Span::styled(format!("NET {}", net_detail(l, "%a %b %-d %H:%M")), app.c(DIM))));
+        lines.push(Line::from(Span::styled(format!("NET {}", l.net_text(crate::model::NetFmt::Long)), app.c(DIM))));
     }
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
 }
 
 fn short_countdown(l: &Launch, now: DateTime<Utc>) -> String {
-    let secs = -schedule::rel_secs(l.net, now);
-    if !l.precise() && secs.abs() > 3600 {
-        // day/week: a date; month and coarser: only what LL2 knows ("Q4 2026"), never a fake day
-        return match l.net_precision.as_str() {
-            "HALF" | "TOD" | "DAY" | "W" => l.net.with_timezone(&Local).format("%b %-d").to_string(),
-            _ => crate::newlaunch::when_text(l),
-        };
+    if !l.precise() {
+        return l.net_text(crate::model::NetFmt::Column);
     }
+    let secs = -schedule::rel_secs(l.net, now);
     let a = secs.abs();
     let s = if a >= 86400 { format!("{}d{:02}h", a / 86400, (a % 86400) / 3600) } else { format!("{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60) };
     format!("{}{s}", if secs >= 0 { "-" } else { "+" })
@@ -1109,7 +1105,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
             Span::styled(format!("{}  ", l.status_name), app.c(FG).add_modifier(Modifier::BOLD)),
             Span::styled(schedule::display_countdown(&l, now), app.c(FG)),
         ]),
-        kv("NET", net_detail(&l, "%a %b %-d %H:%M %Z")),
+        kv("NET", l.net_text(crate::model::NetFmt::Long)),
     ];
     if let (Some(a), Some(b)) = (l.window_start, l.window_end) {
         if a != b {
@@ -1724,7 +1720,16 @@ fn draw_timeline(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     let sel = app.selected().map(|l| l.id.clone());
     let nrows = inner.height.saturating_sub(2) as usize;
     // selected first so it always gets a label, then chronological
-    let mut ls: Vec<(&Launch, i64)> = app.launches().iter().filter_map(|l| Some((l, xpos(l.net)?))).collect();
+    // exact/hour: the instant; coarse: local noon of LL2's calendar date (not UTC midnight,
+    // which west of UTC lands on the previous day's column)
+    let at = |l: &Launch| -> DateTime<Utc> {
+        if l.precise() {
+            l.net
+        } else {
+            l.net_date().and_hms_opt(12, 0, 0).and_then(|d| d.and_local_timezone(Local).single()).map_or(l.net, |d| d.with_timezone(&Utc))
+        }
+    };
+    let mut ls: Vec<(&Launch, i64)> = app.launches().iter().filter_map(|l| Some((l, xpos(at(l))?))).collect();
     ls.sort_by_key(|(l, x)| (Some(&l.id) != sel.as_ref(), *x));
     let names: Vec<String> = ls.iter().map(|(l, _)| format!("•{}", short_mission(l, 14))).collect();
     let items: Vec<(usize, usize)> = ls.iter().zip(&names).map(|((_, x), n)| (*x as usize, n.chars().count())).collect();
@@ -2106,12 +2111,6 @@ pub fn run() -> Result<()> {
     res
 }
 
-/// NET for the TUI: full local date and time when LL2 knows it to the minute/hour,
-/// otherwise only the known precision (same text as the alerts), e.g. "Q4 2026".
-fn net_detail(l: &Launch, fmt: &str) -> String {
-    if l.precise() { l.net.with_timezone(&Local).format(fmt).to_string() } else { crate::newlaunch::when_text(l) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2120,16 +2119,22 @@ mod tests {
     fn net_detail_hides_fake_time_for_coarse() {
         use chrono::TimeZone;
         let mut l = Launch { net: Utc.with_ymd_and_hms(2026, 12, 31, 0, 0, 0).unwrap(), net_precision: "Y".into(), ..Default::default() };
-        assert_eq!(net_detail(&l, "%a %b %-d %H:%M %Z"), "2026");
-        l.net_precision = "Q".into();
-        assert_eq!(net_detail(&l, "%a %b %-d %H:%M %Z"), "Q4 2026");
+        assert_eq!(l.net_text(crate::model::NetFmt::Long), "2026");
+        l.net_precision = "Q4".into();
+        assert_eq!(l.net_text(crate::model::NetFmt::Long), "Q4 2026");
         // list column (9 wide): no fake day for coarse NETs
         let now = l.net - Duration::days(60);
         assert_eq!(short_countdown(&l, now), "Q4 2026");
         l.net_precision = "M".into();
         assert_eq!(short_countdown(&l, now), "Dec 2026");
+        for (p, want) in [("FY", "~2026"), ("DEC", "~2020s"), ("H2", "H2 2026"), ("WK", "~Dec 31"), ("AM", "~Dec 31"), ("DAY", "Dec 31"), ("Y", "2026")] {
+            l.net_precision = p.into();
+            assert_eq!(short_countdown(&l, now), want, "{p}");
+            assert!(short_countdown(&l, now).chars().count() <= 9);
+        }
+        l.net_precision = "Q4".into();
         l.net_precision = "MIN".into();
-        assert_eq!(net_detail(&l, "%H:%M"), l.net.with_timezone(&Local).format("%H:%M").to_string());
+        assert_eq!(l.net_text(crate::model::NetFmt::Long), l.net.with_timezone(&Local).format("%a %b %-d %H:%M").to_string());
     }
     use ratatui::backend::TestBackend;
 

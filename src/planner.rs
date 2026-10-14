@@ -74,7 +74,7 @@ impl Slot {
 pub fn targets<'a>(launches: &'a [Launch], starred: &[String], now: DateTime<Utc>) -> Vec<&'a Launch> {
     let mut v: Vec<&Launch> = launches
         .iter()
-        .filter(|l| !status::is_finished(l.status_id) && matches!(l.net_precision.as_str(), "SEC" | "MIN" | "HR" | ""))
+        .filter(|l| !status::is_finished(l.status_id) && l.precise())
         .filter(|l| l.net > now - Duration::minutes(7) && l.net < now + Duration::minutes(75))
         .collect();
     v.sort_by_key(|l| (!is_starred(starred, &l.provider, &l.provider_abbrev), l.net));

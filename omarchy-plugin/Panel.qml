@@ -186,7 +186,7 @@ Panel {
         }
         Text {
           visible: !!root.l
-          text: root.l ? "NET " + Model.localTime(root.l.net) + "  (" + root.l.net_precision + ")" : ""
+          text: root.l ? "NET " + Model.netText(root.l, "long") : ""
           color: root.dim
           font.family: root.font
           font.pixelSize: Style.font.body

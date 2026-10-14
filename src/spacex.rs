@@ -98,8 +98,8 @@ pub fn match_tile<'a>(l: &Launch, tiles: &'a [Tile]) -> Option<&'a Tile> {
         .filter(|t| {
             if let Some(d) = t.date {
                 // LL2 NETs coarser than a day (week/month/…) drift a lot; be lenient there.
-                let tol = if matches!(l.net_precision.as_str(), "SEC" | "MIN" | "HR" | "HALF" | "TOD" | "DAY" | "") { 3 } else { 45 };
-                if (d - l.net.date_naive()).num_days().abs() > tol {
+                let tol = if l.precision().rank() <= 2 { 3 } else { 45 };
+                if (d - l.net_date()).num_days().abs() > tol {
                     return false;
                 }
             }

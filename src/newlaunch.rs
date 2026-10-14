@@ -2,37 +2,14 @@
 use crate::config::NotifyConfig;
 use crate::model::Launch;
 use crate::schedule::{Alert, AlertKind, State};
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 /// More than this many new launches in one fetch → one summary notification.
 pub const BATCH_OVER: usize = 3;
 
-/// NET text at the precision LL2 actually knows, e.g. "Dec 30 17:00", "Dec 30", "Dec 2026", "Q4 2026", "2026".
-///
-/// Day-or-finer precisions are shown in local time. Month/quarter/half/year precisions use the
-/// UTC calendar: LL2 encodes those as a UTC instant at the edge of the period (e.g. 2027-01-01T00:00Z
-/// or 2026-12-31T23:59Z), and converting that to a zone west of UTC would move it into the previous
-/// month/year ("NET 2026" for a 2027 launch).
-pub(crate) fn when_text(l: &Launch) -> String {
-    use chrono::Datelike;
-    let t = l.net.with_timezone(&Local);
-    let u = l.net;
-    match l.net_precision.as_str() {
-        "SEC" | "MIN" | "" => t.format("%b %-d %H:%M").to_string(),
-        "HR" => format!("{} (±1h)", t.format("%b %-d ~%H:00")),
-        "HALF" | "TOD" | "DAY" => t.format("%b %-d").to_string(),
-        "W" => format!("week of {}", t.format("%b %-d")),
-        "M" => u.format("%b %Y").to_string(),
-        "Q" => format!("Q{} {}", (u.month() - 1) / 3 + 1, u.year()),
-        "H1" | "H2" => format!("{} {}", l.net_precision, u.year()),
-        "Y" => u.year().to_string(),
-        _ => format!("~{}", t.format("%b %-d")),
-    }
-}
-
 pub fn describe(l: &Launch) -> String {
     let mission = if l.mission.is_empty() { l.name.as_str() } else { l.mission.as_str() };
-    format!("{} · {} · NET {}", l.short_rocket(), mission, when_text(l))
+    format!("{} · {} · NET {}", l.short_rocket(), mission, l.net_text(crate::model::NetFmt::Short))
 }
 
 /// Updates `state.seen`; returns the alerts to send (0, 1 per launch, or 1 summary).
@@ -110,8 +87,8 @@ mod tests {
         use chrono::TimeZone;
         let mut x = l("a", "SpaceX");
         x.net = Utc.with_ymd_and_hms(2026, 12, 30, 23, 0, 0).unwrap();
-        let y = x.net.with_timezone(&Local).format("%Y").to_string();
-        for (p, bad) in [("Y", "(year)"), ("M", "(month)"), ("Q", "(quarter)")] {
+        let y = x.net.with_timezone(&chrono::Local).format("%Y").to_string();
+        for (p, bad) in [("Y", "(year)"), ("M", "(month)"), ("Q4", "(quarter)")] {
             x.net_precision = p.into();
             let d = describe(&x);
             assert!(!d.contains(bad) && !d.contains(':'), "{p}: {d}");
@@ -127,15 +104,59 @@ mod tests {
         let mut x = l("a", "SpaceX");
         // midnight UTC on Jan 1 is still Dec 31 in every zone west of UTC
         x.net = Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap();
-        for (p, want) in [("Y", "2027"), ("M", "Jan 2027"), ("Q", "Q1 2027"), ("H1", "H1 2027")] {
+        for (p, want) in [("Y", "2027"), ("M", "Jan 2027"), ("Q1", "Q1 2027"), ("H1", "H1 2027")] {
             x.net_precision = p.into();
-            assert_eq!(when_text(&x), want, "{p}");
+            assert_eq!(x.net_text(crate::model::NetFmt::Short), want, "{p}");
         }
         x.net = Utc.with_ymd_and_hms(2026, 12, 31, 23, 59, 59).unwrap();
-        for (p, want) in [("Y", "2026"), ("M", "Dec 2026"), ("Q", "Q4 2026"), ("H2", "H2 2026")] {
+        for (p, want) in [("Y", "2026"), ("M", "Dec 2026"), ("Q4", "Q4 2026"), ("H2", "H2 2026")] {
             x.net_precision = p.into();
-            assert_eq!(when_text(&x), want, "{p}");
+            assert_eq!(x.net_text(crate::model::NetFmt::Short), want, "{p}");
         }
+    }
+
+    #[test]
+    fn every_ll2_precision_code_renders_without_fake_time() {
+        use chrono::TimeZone;
+        // LL2 2.3.0 /config/net_precisions/ (17 codes), dated the way LL2 stores them
+        let d = |y, m, dd| Utc.with_ymd_and_hms(y, m, dd, 0, 0, 0).unwrap();
+        let cases = [
+            ("AM", d(2026, 11, 3), "~Nov 3 (morning, site time)"),
+            ("PM", d(2026, 11, 3), "~Nov 3 (afternoon, site time)"),
+            ("DAY", d(2026, 11, 7), "Nov 7"),
+            ("WK", d(2026, 11, 9), "~Nov 9 (week)"),
+            ("M", d(2026, 12, 31), "Dec 2026"),
+            ("Q1", d(2027, 3, 31), "Q1 2027"),
+            ("Q2", d(2027, 6, 30), "Q2 2027"),
+            ("Q3", d(2027, 9, 30), "Q3 2027"),
+            ("Q4", d(2026, 12, 31), "Q4 2026"),
+            ("H1", d(2027, 6, 30), "H1 2027"),
+            ("H2", d(2026, 12, 31), "H2 2026"),
+            ("Y", d(2026, 12, 31), "2026"),
+            ("FY", d(2027, 6, 30), "~2027 (fiscal year)"),
+            ("DEC", d(2029, 12, 31), "~2020s"),
+            // legacy/fake codes stay harmless
+            ("W", d(2026, 11, 9), "~Nov 9 (week)"),
+            ("TOD", d(2026, 11, 7), "Nov 7"),
+            ("Q", d(2026, 12, 31), "Q4 2026"),
+            ("ZZZ", d(2026, 11, 7), "~Nov 7"),
+        ];
+        let mut x = l("a", "SpaceX");
+        for (p, net, want) in cases {
+            x.net_precision = p.into();
+            x.net = net;
+            assert_eq!(x.net_text(crate::model::NetFmt::Short), want, "{p}");
+            assert!(!describe(&x).contains(':'), "{p}: {}", describe(&x));
+        }
+        // minute / second / hour keep local clock time
+        x.net = d(2026, 11, 5) + chrono::Duration::minutes(210);
+        let local = x.net.with_timezone(&chrono::Local);
+        for p in ["SEC", "MIN", ""] {
+            x.net_precision = p.into();
+            assert_eq!(x.net_text(crate::model::NetFmt::Short), local.format("%b %-d %H:%M").to_string(), "{p}");
+        }
+        x.net_precision = "HR".into();
+        assert!(x.net_text(crate::model::NetFmt::Short).ends_with("(±1h)"));
     }
 
     #[test]

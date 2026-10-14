@@ -29,45 +29,33 @@ pub fn format_countdown(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
     if d > 0 { format!("T{sign}{d}d {h:02}h") } else { format!("T{sign}{h:02}:{m:02}:{sec:02}") }
 }
 
-/// Countdown that does not invent precision: coarse NETs show a date instead.
+/// Countdown that does not invent precision: only exact/hour NETs tick; coarse NETs always
+/// show their label (no countdown toward LL2's UTC-midnight placeholder).
 pub fn display_countdown(l: &Launch, now: DateTime<Utc>) -> String {
-    if l.precise() || (l.net - now).num_hours().abs() < 1 {
-        format_countdown(l.net, now)
-    } else {
-        let local = l.net.with_timezone(&Local);
-        match l.net_precision.as_str() {
-            "HALF" | "TOD" | "DAY" => format!("NET {}", local.format("%a %b %-d")),
-            "W" => format!("NET {}", local.format("%b %Y")),
-            // month and coarser: same text (and UTC calendar) as the new-launch alert
-            _ => format!("NET {}", crate::newlaunch::when_text(l)),
-        }
-    }
+    if l.precise() { format_countdown(l.net, now) } else { format!("NET {}", l.net_text(crate::model::NetFmt::Long)) }
 }
 
-/// Lead text for a NET that is not known to the minute: no fake hours/minutes.
-pub fn coarse_lead(net: DateTime<Utc>, now: DateTime<Utc>) -> String {
-    let h = (net - now).num_hours();
-    if h < 12 {
-        return "within a day".into();
-    }
-    match (h + 12) / 24 {
-        1 => "~1 day".into(),
+/// Lead text for a coarse NET, from calendar dates (LL2's label date vs today's local date),
+/// never from the placeholder instant: "today", "tomorrow", "~N days".
+pub fn coarse_lead(l: &Launch, now: DateTime<Utc>) -> String {
+    match (l.net_date() - now.with_timezone(&Local).date_naive()).num_days() {
+        ..=0 => "today".into(),
+        1 => "tomorrow".into(),
         d => format!("~{d} days"),
     }
 }
 
-/// NET (local time) and lead text for alerts, at the precision LL2 knows.
+/// NET and lead text for alerts, at the precision LL2 knows.
 fn alert_when(l: &Launch, now: DateTime<Utc>, long: bool) -> (String, String) {
-    if l.net_precision == "HR" {
-        let f = if long { "%a %b %-d ~%H:%M" } else { "~%H:%M" };
-        let lead = human_lead(l.net, now);
-        let lead = lead.strip_prefix("in ").map(|x| format!("in ~{x}")).unwrap_or(lead);
-        (format!("{} ±1h", l.net.with_timezone(&Local).format(f)), lead)
-    } else if l.precise() {
-        let f = if long { "%a %b %-d %H:%M" } else { "%H:%M" };
-        (l.net.with_timezone(&Local).format(f).to_string(), human_lead(l.net, now))
-    } else {
-        (crate::newlaunch::when_text(l), coarse_lead(l.net, now))
+    use crate::model::{NetFmt, Precision};
+    let f = if long { NetFmt::Long } else { NetFmt::Clock };
+    match l.precision() {
+        Precision::Exact => (l.net_text(f), human_lead(l.net, now)),
+        Precision::Hour => {
+            let lead = human_lead(l.net, now);
+            (l.net_text(f), lead.strip_prefix("in ").map(|x| format!("in ~{x}")).unwrap_or(lead))
+        }
+        _ => (l.net_text(NetFmt::Short), coarse_lead(l, now)),
     }
 }
 
@@ -240,12 +228,7 @@ pub struct Alert {
 }
 
 fn precision_ok(prec: &str, minutes: i64) -> bool {
-    let rank = match prec {
-        "SEC" | "MIN" | "" => 0,
-        "HR" => 1,
-        "HALF" | "TOD" | "DAY" => 2,
-        _ => 3,
-    };
+    let rank = crate::model::Precision::from_abbrev(prec).rank();
     // Hour precision still gets the short lead alerts (worded "~"): LL2 keeps many
     // NOTAM-window launches at "HR" until after liftoff, so requiring minute
     // precision meant no T-10 alert at all for them.
@@ -362,7 +345,7 @@ pub fn plan_alerts(launches: &[Launch], cfg: &NotifyConfig, starred: &[String], 
             out[i].also_covers.push(key);
             continue;
         }
-        let approx = if l.net_precision == "HR" { "~" } else { "" };
+        let approx = if l.precision() == crate::model::Precision::Hour { "~" } else { "" };
         let label = if m >= 60 && m % 60 == 0 { format!("{approx}T-{}h", m / 60) } else { format!("{approx}T-{m}m") };
         out.push(Alert {
             key,
@@ -471,17 +454,48 @@ mod tests {
     fn coarse_countdown_matches_new_launch_text() {
         use chrono::TimeZone;
         let mut l = launch("a", "X", Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap());
-        for (p, want) in [("Y", "NET 2027"), ("M", "NET Jan 2027"), ("Q", "NET Q1 2027"), ("H1", "NET H1 2027")] {
+        for (p, want) in [("Y", "NET 2027"), ("M", "NET Jan 2027"), ("Q1", "NET Q1 2027"), ("H1", "NET H1 2027")] {
             l.net_precision = p.into();
             assert_eq!(display_countdown(&l, t0()), want, "{p}");
         }
     }
 
     #[test]
+    fn real_ll2_codes_gate_alerts_and_countdown() {
+        use chrono::TimeZone;
+        assert!(precision_ok("HR", 10) && precision_ok("MIN", 10) && precision_ok("SEC", 10));
+        for p in ["AM", "PM", "DAY"] {
+            assert!(!precision_ok(p, 10) && !precision_ok(p, 60) && precision_ok(p, 1440), "{p}");
+        }
+        for p in ["WK", "M", "Q1", "Q4", "H1", "H2", "Y", "FY", "DEC", "ZZZ"] {
+            assert!(!precision_ok(p, 1440), "{p}");
+        }
+        let mut l = launch("a", "X", Utc.with_ymd_and_hms(2026, 11, 7, 0, 0, 0).unwrap());
+        l.net_precision = "DAY".into();
+        assert_eq!(display_countdown(&l, t0()), "NET Sat Nov 7");
+        l.net_precision = "AM".into();
+        assert_eq!(display_countdown(&l, t0()), "NET ~Nov 7 (morning, site time)");
+        l.net_precision = "WK".into();
+        assert_eq!(display_countdown(&l, t0()), "NET ~Nov 7 (week)");
+        l.net = Utc.with_ymd_and_hms(2026, 12, 31, 0, 0, 0).unwrap();
+        l.net_precision = "Q4".into();
+        assert_eq!(display_countdown(&l, t0()), "NET Q4 2026");
+        l.net_precision = "FY".into();
+        assert_eq!(display_countdown(&l, t0()), "NET ~2026 (fiscal year)");
+    }
+
+    #[test]
     fn coarse_lead_text() {
-        assert_eq!(coarse_lead(t0() + Duration::hours(5), t0()), "within a day");
-        assert_eq!(coarse_lead(t0() + Duration::hours(23), t0()), "~1 day");
-        assert_eq!(coarse_lead(t0() + Duration::hours(47), t0()), "~2 days");
+        use chrono::TimeZone;
+        // calendar-date difference (LL2 label date vs local today), not hours to the placeholder
+        let now = Local.with_ymd_and_hms(2026, 11, 5, 23, 30, 0).unwrap().with_timezone(&Utc);
+        let mut l = launch("a", "X", Utc.with_ymd_and_hms(2026, 11, 5, 0, 0, 0).unwrap());
+        l.net_precision = "DAY".into();
+        assert_eq!(coarse_lead(&l, now), "today");
+        l.net = Utc.with_ymd_and_hms(2026, 11, 6, 0, 0, 0).unwrap();
+        assert_eq!(coarse_lead(&l, now), "tomorrow");
+        l.net = Utc.with_ymd_and_hms(2026, 11, 9, 0, 0, 0).unwrap();
+        assert_eq!(coarse_lead(&l, now), "~4 days");
     }
 
     fn day_launch(net: DateTime<Utc>) -> Launch {
@@ -498,7 +512,7 @@ mod tests {
         let l = day_launch(t0() + Duration::hours(20));
         let a = plan_alerts(std::slice::from_ref(&l), &NotifyConfig::default(), &["SpaceX".into()], t0(), &State::default());
         assert_eq!(a.len(), 1);
-        let want = format!("Liftoff NET {} (~1 day).", crate::newlaunch::when_text(&l));
+        let want = format!("Liftoff NET {} ({}).", l.net_text(crate::model::NetFmt::Short), coarse_lead(&l, t0()));
         assert!(a[0].body.starts_with(&want), "{}", a[0].body);
         assert!(no_clock_time(&a[0].body) && !a[0].body.contains("in 20h"), "{}", a[0].body);
     }
@@ -515,12 +529,12 @@ mod tests {
         l.net += Duration::days(1);
         let a = plan_alerts(&[l.clone()], &cfg, &star, t0(), &st);
         let slip = a.iter().find(|a| matches!(a.kind, AlertKind::Slip { .. })).expect("slip");
-        assert!(slip.body.starts_with(&format!("New NET {} (~2 days).", crate::newlaunch::when_text(&l))), "{}", slip.body);
+        assert!(slip.body.starts_with(&format!("New NET {} ({}).", l.net_text(crate::model::NetFmt::Short), coarse_lead(&l, t0()))), "{}", slip.body);
         assert!(no_clock_time(&slip.body), "{}", slip.body);
         l.status_id = status::HOLD;
         let a = plan_alerts(&[l.clone()], &cfg, &star, t0(), &st);
         let hold = a.iter().find(|a| matches!(a.kind, AlertKind::Hold)).expect("hold");
-        assert!(hold.body.ends_with(&format!("NET {}", crate::newlaunch::when_text(&l))), "{}", hold.body);
+        assert!(hold.body.ends_with(&format!("NET {}", l.net_text(crate::model::NetFmt::Short))), "{}", hold.body);
         assert!(no_clock_time(&hold.body), "{}", hold.body);
     }
 

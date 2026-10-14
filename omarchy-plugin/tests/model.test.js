@@ -15,7 +15,7 @@ assert.strictEqual(M.ICON, "\u{F14DE}");
 assert.ok(!/🚀|●|LIVE/.test(M.barText(L({ status_id: 6, status_class: "flight" }), now, true, "MECO")));
 assert.ok(M.displayCountdown(L({ net: "2026-10-20T00:00:00Z", net_precision: "DAY" }), now).startsWith("NET "));
 // coarse NETs: UTC calendar (matches the daemon), never the previous year west of UTC
-[["Y", "NET 2027"], ["M", "NET Jan 2027"], ["Q", "NET Q1 2027"], ["H1", "NET H1 2027"]].forEach(function (c) {
+[["Y", "NET 2027"], ["M", "NET Jan 2027"], ["Q1", "NET Q1 2027"], ["H1", "NET H1 2027"]].forEach(function (c) {
   assert.strictEqual(M.displayCountdown(L({ net: "2027-01-01T00:00:00Z", net_precision: c[0] }), now), c[1]);
 });
 const cache = { starred: ["SpaceX"], launches: [
@@ -135,3 +135,25 @@ assert.strictEqual(M.iconState(mc.launches[0], now, "MECO"), "live");
 
 }
 console.log("model.test.js: all assertions passed");
+
+// Coarse NETs are calendar labels: identical text in every TZ (run under Phoenix, UTC, Tokyo).
+// [code, net, short, long, column] — nets are LL2's real encoding (00:00Z) plus 23:59Z.
+[["DAY", "2026-11-07T00:00:00Z", "Nov 7", "Sat Nov 7", "Nov 7"], ["DAY", "2026-11-07T23:59:00Z", "Nov 7", "Sat Nov 7", "Nov 7"],
+ ["M", "2026-12-31T00:00:00Z", "Dec 2026", "Dec 2026", "Dec 2026"], ["Q4", "2026-12-31T00:00:00Z", "Q4 2026", "Q4 2026", "Q4 2026"],
+ ["Q1", "2027-01-01T00:00:00Z", "Q1 2027", "Q1 2027", "Q1 2027"], ["H1", "2027-06-30T00:00:00Z", "H1 2027", "H1 2027", "H1 2027"],
+ ["Y", "2026-12-31T00:00:00Z", "2026", "2026", "2026"], ["Y", "2027-01-01T00:00:00Z", "2027", "2027", "2027"],
+ ["FY", "2027-06-30T00:00:00Z", "~2027 (fiscal year)", "~2027 (fiscal year)", "~2027"], ["DEC", "2029-12-31T00:00:00Z", "~2020s", "~2020s", "~2020s"],
+ ["AM", "2026-11-03T00:00:00Z", "~Nov 3 (morning, site time)", "~Nov 3 (morning, site time)", "~Nov 3"],
+ ["PM", "2026-11-03T23:59:00Z", "~Nov 3 (afternoon, site time)", "~Nov 3 (afternoon, site time)", "~Nov 3"],
+ ["WK", "2026-11-09T00:00:00Z", "~Nov 9 (week)", "~Nov 9 (week)", "~Nov 9"],
+ ["W", "2026-11-09T00:00:00Z", "~Nov 9 (week)", "~Nov 9 (week)", "~Nov 9"], ["Q", "2026-12-31T00:00:00Z", "Q4 2026", "Q4 2026", "Q4 2026"],
+ ["ZZZ", "2026-11-07T00:00:00Z", "~Nov 7", "~Nov 7", "~Nov 7"]].forEach(function (c) {
+  const l = L({ net: c[1], net_precision: c[0] });
+  assert.strictEqual(M.netText(l, "short"), c[2], c[0] + " short");
+  assert.strictEqual(M.netText(l, "long"), c[3], c[0] + " long");
+  assert.strictEqual(M.netText(l, "column"), c[4], c[0] + " column");
+  assert.strictEqual(M.displayCountdown(l, now), "NET " + c[3], c[0]);
+  // no countdown toward the placeholder even within the hour
+  assert.strictEqual(M.displayCountdown(l, Date.parse(c[1]) - 600000), "NET " + c[3], c[0] + " near");
+});
+assert.ok(M.netText(L({ net_precision: "HR" }), "clock").endsWith("±1h"));

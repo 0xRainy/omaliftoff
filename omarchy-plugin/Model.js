@@ -107,19 +107,57 @@ function countdown(netIso, nowMs) {
 var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Don't fake precision: coarse NETs show a date.
+// LL2 net_precision.abbrev (2.3.0 /config/net_precisions/): SEC MIN HR AM PM DAY WK M Q1-Q4 H1 H2 Y FY DEC.
+// Legacy/never-sent codes (HALF, TOD, W, Q) are mapped harmlessly. Mirrors Precision in model.rs.
+function precisionKind(p) {
+  p = p || "";
+  if (p === "SEC" || p === "MIN" || p === "") return "exact";
+  if (p === "HR") return "hour";
+  if (p === "AM" || p === "PM" || p === "DAY" || p === "HALF" || p === "TOD") return "day";
+  if (p === "WK" || p === "W") return "week";
+  if (p === "M") return "month";
+  if (/^Q[1-4]?$/.test(p)) return "quarter";
+  if (p === "H1" || p === "H2") return "half";
+  if (p === "Y") return "year";
+  if (p === "FY") return "fy";
+  if (p === "DEC") return "decade";
+  return "unknown";
+}
+
+// THE only NET formatter (mirrors Launch::net_text in model.rs; see its evidence notes).
+// fmt: "short" | "long" | "clock" | "column". Local time only for exact/hour; day and coarser
+// are calendar labels -> UTC fields. AM/PM/WK/FY/DEC encodings are unverified -> "~".
+function netText(l, fmt) {
+  fmt = fmt || "short";
+  var d = new Date(Date.parse(l.net));
+  var p = l.net_precision || "";
+  var md = MONTHS[d.getUTCMonth()] + " " + d.getUTCDate();
+  var y = d.getUTCFullYear();
+  var hm = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  var lmd = MONTHS[d.getMonth()] + " " + d.getDate();
+  switch (precisionKind(p)) {
+    case "exact":
+      return fmt === "clock" ? hm : fmt === "long" ? DAYS[d.getDay()] + " " + lmd + " " + hm : lmd + " " + hm;
+    case "hour":
+      return fmt === "clock" ? "~" + hm + " ±1h" : fmt === "long" ? DAYS[d.getDay()] + " " + lmd + " ~" + hm + " ±1h" : lmd + " ~" + pad2(d.getHours()) + ":00 (±1h)";
+    case "day":
+      if (p === "AM" || p === "PM") return fmt === "column" ? "~" + md : "~" + md + (p === "AM" ? " (morning, site time)" : " (afternoon, site time)");
+      return fmt === "long" ? DAYS[d.getUTCDay()] + " " + md : md;
+    case "week": return fmt === "column" ? "~" + md : "~" + md + " (week)";
+    case "month": return MONTHS[d.getUTCMonth()] + " " + y;
+    case "quarter": return (p.length === 2 ? p : "Q" + (Math.floor(d.getUTCMonth() / 3) + 1)) + " " + y;
+    case "half": return p + " " + y;
+    case "year": return String(y);
+    case "fy": return fmt === "column" ? "~" + y : "~" + y + " (fiscal year)";
+    case "decade": return "~" + Math.floor(y / 10) * 10 + "s";
+    default: return "~" + md;
+  }
+}
+
+// Don't fake precision: only exact/hour NETs tick; coarse NETs always show their label.
 function displayCountdown(l, nowMs) {
-  var t = Date.parse(l.net);
-  if (PRECISE[l.net_precision || ""] || Math.abs(t - nowMs) < 3600 * 1000) return countdown(l.net, nowMs);
-  var d = new Date(t);
-  var p = l.net_precision;
-  if (p === "HALF" || p === "TOD" || p === "DAY") return "NET " + DAYS[d.getDay()] + " " + MONTHS[d.getMonth()] + " " + d.getDate();
-  if (p === "W") return "NET " + MONTHS[d.getMonth()] + " " + d.getFullYear();
-  // month and coarser: UTC calendar, same text as the daemon (LL2 puts these at a UTC period edge)
-  if (p === "M") return "NET " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
-  if (p === "Q") return "NET Q" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + d.getUTCFullYear();
-  if (p === "H1" || p === "H2") return "NET " + p + " " + d.getUTCFullYear();
-  return "NET " + d.getUTCFullYear();
+  if (PRECISE[l.net_precision || ""]) return countdown(l.net, nowMs);
+  return "NET " + netText(l, "long");
 }
 
 function shortRocket(l) {
@@ -258,12 +296,6 @@ function shortSecs(s) {
   return s + "s";
 }
 
-function localTime(iso) {
-  if (!iso) return "";
-  var d = new Date(Date.parse(iso));
-  return DAYS[d.getDay()] + " " + MONTHS[d.getMonth()] + " " + d.getDate() + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
-}
-
 function ago(iso, nowMs) {
   if (!iso) return "never";
   var m = Math.floor((nowMs - Date.parse(iso)) / 60000);
@@ -280,6 +312,6 @@ function hidden(l, nowMs, hideBeyondDays) {
 
 // Node test hook (ignored by QML).
 if (typeof module !== "undefined") module.exports = {
-  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown,
+  parseCache: parseCache, parseTest: parseTest, testActive: testActive, withTest: withTest, upcomingWithTest: upcomingWithTest, isTest: isTest, TEST_ID: TEST_ID, upcoming: upcoming, countdown: countdown, relSecs: relSecs, msToNextSecond: msToNextSecond, displayCountdown: displayCountdown, netText: netText, precisionKind: precisionKind,
   barText: barText, iconState: iconState, showText: showText, ICON: ICON, nextMilestone: nextMilestone, liveStage: liveStage, applyClock: applyClock, parseNudge: parseNudge, shortSecs: shortSecs, fmtRel: fmtRel, isLive: isLive, colorKey: colorKey, hidden: hidden, ago: ago, shortRocket: shortRocket
 };
