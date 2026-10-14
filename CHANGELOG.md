@@ -62,11 +62,14 @@ Fixes.
   (plus a QR code); for a custom server it also names the server to add in the app.
 - When the setup wizard's test push fails, it now says why (e.g. "Connection refused",
   "status code 401").
+- `install.sh --uninstall --purge` removes everything without asking: binary, service, widget,
+  and config (including the ntfy topic and token), cache, state and the saved installer.
+  `--uninstall --yes` still keeps your data. `install.sh --help` now lists every option.
 - Tests: `tests/e2e.sh` drives the real binary against a fake LL2 and a mock ntfy with a faked clock
   (libfaketime). It covers NET text in UTC, Phoenix and Tokyo, the T-24h/T-1h/T-10m alerts firing once
   (desktop + ntfy) across daemon restarts, slips, hour-precision alerts and syncs, failed-fetch
   reporting, and both fixes above. `tests/setup-hint.sh` checks the wizard's subscribe hint for ntfy.sh
-  and for a custom server. Both run in CI.
+  and for a custom server, and `tests/uninstall.sh` checks `--yes` (data kept) and `--purge` (nothing left). All run in CI.
 - README: `curl` is only used by the installer's prebuilt download, not for ntfy.
 
 ## 0.1.4 (2026-10-13)

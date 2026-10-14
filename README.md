@@ -81,6 +81,7 @@ bash ~/.config/omarchy/plugins/liftoff.tracker/install.sh  # companion, from the
 
 ```bash
 bash ~/.config/omarchy/plugins/liftoff.tracker/install.sh --uninstall   # service, binary, widget; asks about config/cache
+bash ~/.config/omarchy/plugins/liftoff.tracker/install.sh --uninstall --purge   # everything, incl. config (ntfy topic/token), cache, state; no prompt
 # or step by step:
 systemctl --user disable --now liftoff.service && rm ~/.config/systemd/user/liftoff.service ~/.local/bin/liftoff
 omarchy plugin remove liftoff.tracker

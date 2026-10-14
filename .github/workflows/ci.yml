@@ -33,7 +33,7 @@ jobs:
       - run: node omarchy-plugin/tests/model.test.js
       - run: node omarchy-plugin/tests/widget.test.js
       - run: node omarchy-plugin/tests/plaintext.test.js
-      - run: shellcheck install.sh tests/secret-leak.sh tests/e2e.sh tests/setup-hint.sh
+      - run: shellcheck install.sh tests/secret-leak.sh tests/e2e.sh tests/setup-hint.sh tests/uninstall.sh
       - name: secrets never reach argv/env/logs (installer under strace)
         run: |
           sudo apt-get update && sudo apt-get install -y strace
@@ -45,6 +45,8 @@ jobs:
           bash tests/e2e.sh target/debug/liftoff
       - name: setup wizard subscribe hint (ntfy.sh default + custom server)
         run: bash tests/setup-hint.sh target/debug/liftoff
+      - name: uninstall keeps data with --yes, --purge leaves nothing
+        run: bash tests/uninstall.sh target/debug/liftoff
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

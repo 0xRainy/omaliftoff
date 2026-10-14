@@ -8,6 +8,7 @@
 #   ./install.sh               install or upgrade (idempotent)
 #   ./install.sh --setup       notification + starred-provider wizard only (`liftoff setup`)
 #   ./install.sh --uninstall   remove binary, service and plugin (asks about config/cache)
+#   ./install.sh --uninstall --purge   also delete config (ntfy topic/token), cache, state, data; no prompt
 #   ./install.sh --yes         accept defaults, no prompts
 #   ./install.sh --from-source skip the prebuilt binary
 # ok/warn always succeed, so `cmd && ok .. || warn ..` is intended.
@@ -24,17 +25,19 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT="$UNIT_DIR/liftoff.service"
 PLUGIN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$PLUGIN_ID"
 
-MODE=install YES=0 FROM_SOURCE=0
+MODE=install YES=0 FROM_SOURCE=0 PURGE=0
 for a in "$@"; do
   case "$a" in
     --setup) MODE=setup ;;
     --uninstall) MODE=uninstall ;;
+    --purge) PURGE=1 ;;
     --yes|-y) YES=1 ;;
     --from-source) FROM_SOURCE=1 ;;
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
+    -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
 done
+[[ $PURGE == 0 || $MODE == uninstall ]] || { echo "--purge only goes with --uninstall" >&2; exit 2; }
 
 # Must run from a checkout (the plugin folder or a git clone): never download-and-run.
 SRC=""
@@ -319,7 +322,7 @@ uninstall() {
   rm -rf "$PLUGIN_DIR"
   ok "bar widget removed"
   rm -f "$BIN"; ok "binary removed"
-  if ask_yn "Also delete config, cache and state (~/.config/liftoff, ~/.cache/liftoff, ~/.local/state/liftoff)?" n; then
+  if [[ $PURGE == 1 ]] || ask_yn "Also delete config, cache and state (~/.config/liftoff, ~/.cache/liftoff, ~/.local/state/liftoff)?" n; then
     rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/liftoff" "${XDG_CACHE_HOME:-$HOME/.cache}/liftoff" \
       "${XDG_STATE_HOME:-$HOME/.local/state}/liftoff" "$DATA_DIR"
     ok "data removed"
