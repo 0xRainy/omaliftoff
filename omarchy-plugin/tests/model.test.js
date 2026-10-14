@@ -14,6 +14,10 @@ assert.strictEqual(M.barText(null, now, true), "—");
 assert.strictEqual(M.ICON, "\u{F14DE}");
 assert.ok(!/🚀|●|LIVE/.test(M.barText(L({ status_id: 6, status_class: "flight" }), now, true, "MECO")));
 assert.ok(M.displayCountdown(L({ net: "2026-10-20T00:00:00Z", net_precision: "DAY" }), now).startsWith("NET "));
+// coarse NETs: UTC calendar (matches the daemon), never the previous year west of UTC
+[["Y", "NET 2027"], ["M", "NET Jan 2027"], ["Q", "NET Q1 2027"], ["H1", "NET H1 2027"]].forEach(function (c) {
+  assert.strictEqual(M.displayCountdown(L({ net: "2027-01-01T00:00:00Z", net_precision: c[0] }), now), c[1]);
+});
 const cache = { starred: ["SpaceX"], launches: [
   L({ id: "done", status_id: 3, net: "2026-10-13T17:00:00Z" }),
   L({ id: "rl", provider: "Rocket Lab", provider_abbrev: "RL", net: "2026-10-13T19:00:00Z" }),

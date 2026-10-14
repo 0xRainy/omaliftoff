@@ -114,8 +114,12 @@ function displayCountdown(l, nowMs) {
   var d = new Date(t);
   var p = l.net_precision;
   if (p === "HALF" || p === "TOD" || p === "DAY") return "NET " + DAYS[d.getDay()] + " " + MONTHS[d.getMonth()] + " " + d.getDate();
-  if (p === "W" || p === "M") return "NET " + MONTHS[d.getMonth()] + " " + d.getFullYear();
-  return "NET " + d.getFullYear();
+  if (p === "W") return "NET " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+  // month and coarser: UTC calendar, same text as the daemon (LL2 puts these at a UTC period edge)
+  if (p === "M") return "NET " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+  if (p === "Q") return "NET Q" + (Math.floor(d.getUTCMonth() / 3) + 1) + " " + d.getUTCFullYear();
+  if (p === "H1" || p === "H2") return "NET " + p + " " + d.getUTCFullYear();
+  return "NET " + d.getUTCFullYear();
 }
 
 function shortRocket(l) {

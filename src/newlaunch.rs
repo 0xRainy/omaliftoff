@@ -8,18 +8,24 @@ use chrono::{DateTime, Duration, Local, Utc};
 pub const BATCH_OVER: usize = 3;
 
 /// NET text at the precision LL2 actually knows, e.g. "Dec 30 17:00", "Dec 30", "Dec 2026", "Q4 2026", "2026".
-fn when_text(l: &Launch) -> String {
+///
+/// Day-or-finer precisions are shown in local time. Month/quarter/half/year precisions use the
+/// UTC calendar: LL2 encodes those as a UTC instant at the edge of the period (e.g. 2027-01-01T00:00Z
+/// or 2026-12-31T23:59Z), and converting that to a zone west of UTC would move it into the previous
+/// month/year ("NET 2026" for a 2027 launch).
+pub(crate) fn when_text(l: &Launch) -> String {
     use chrono::Datelike;
     let t = l.net.with_timezone(&Local);
+    let u = l.net;
     match l.net_precision.as_str() {
         "SEC" | "MIN" | "" => t.format("%b %-d %H:%M").to_string(),
         "HR" => format!("{} (±1h)", t.format("%b %-d ~%H:00")),
         "HALF" | "TOD" | "DAY" => t.format("%b %-d").to_string(),
         "W" => format!("week of {}", t.format("%b %-d")),
-        "M" => t.format("%b %Y").to_string(),
-        "Q" => format!("Q{} {}", (t.month() - 1) / 3 + 1, t.year()),
-        "H1" | "H2" => format!("{} {}", l.net_precision, t.year()),
-        "Y" => t.year().to_string(),
+        "M" => u.format("%b %Y").to_string(),
+        "Q" => format!("Q{} {}", (u.month() - 1) / 3 + 1, u.year()),
+        "H1" | "H2" => format!("{} {}", l.net_precision, u.year()),
+        "Y" => u.year().to_string(),
         _ => format!("~{}", t.format("%b %-d")),
     }
 }
@@ -113,6 +119,23 @@ mod tests {
         }
         x.net_precision = "Y".into();
         assert!(describe(&x).ends_with(&format!("NET {y}")));
+    }
+
+    #[test]
+    fn coarse_net_uses_utc_calendar() {
+        use chrono::TimeZone;
+        let mut x = l("a", "SpaceX");
+        // midnight UTC on Jan 1 is still Dec 31 in every zone west of UTC
+        x.net = Utc.with_ymd_and_hms(2027, 1, 1, 0, 0, 0).unwrap();
+        for (p, want) in [("Y", "2027"), ("M", "Jan 2027"), ("Q", "Q1 2027"), ("H1", "H1 2027")] {
+            x.net_precision = p.into();
+            assert_eq!(when_text(&x), want, "{p}");
+        }
+        x.net = Utc.with_ymd_and_hms(2026, 12, 31, 23, 59, 59).unwrap();
+        for (p, want) in [("Y", "2026"), ("M", "Dec 2026"), ("Q", "Q4 2026"), ("H2", "H2 2026")] {
+            x.net_precision = p.into();
+            assert_eq!(when_text(&x), want, "{p}");
+        }
     }
 
     #[test]

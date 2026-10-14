@@ -824,7 +824,7 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
     if let Some(w) = &l.weather_concerns {
         lines.push(Line::from(Span::styled(format!("weather: {w}"), app.c(DIM))));
     } else {
-        lines.push(Line::from(Span::styled(format!("NET {}", l.net.with_timezone(&Local).format("%a %b %-d %H:%M")), app.c(DIM))));
+        lines.push(Line::from(Span::styled(format!("NET {}", net_detail(l, "%a %b %-d %H:%M")), app.c(DIM))));
     }
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
 }
@@ -832,7 +832,11 @@ fn draw_hero(f: &mut Frame, app: &App, area: Rect, now: DateTime<Utc>) {
 fn short_countdown(l: &Launch, now: DateTime<Utc>) -> String {
     let secs = -schedule::rel_secs(l.net, now);
     if !l.precise() && secs.abs() > 3600 {
-        return l.net.with_timezone(&Local).format("%b %-d").to_string();
+        // day/week: a date; month and coarser: only what LL2 knows ("Q4 2026"), never a fake day
+        return match l.net_precision.as_str() {
+            "HALF" | "TOD" | "DAY" | "W" => l.net.with_timezone(&Local).format("%b %-d").to_string(),
+            _ => crate::newlaunch::when_text(l),
+        };
     }
     let a = secs.abs();
     let s = if a >= 86400 { format!("{}d{:02}h", a / 86400, (a % 86400) / 3600) } else { format!("{:02}:{:02}:{:02}", a / 3600, (a % 3600) / 60, a % 60) };
@@ -1105,7 +1109,7 @@ fn draw_details(f: &mut Frame, app: &mut App, area: Rect, now: DateTime<Utc>) {
             Span::styled(format!("{}  ", l.status_name), app.c(FG).add_modifier(Modifier::BOLD)),
             Span::styled(schedule::display_countdown(&l, now), app.c(FG)),
         ]),
-        kv("NET", format!("{} ({})", l.net.with_timezone(&Local).format("%a %b %-d %H:%M %Z"), l.net_precision)),
+        kv("NET", net_detail(&l, "%a %b %-d %H:%M %Z")),
     ];
     if let (Some(a), Some(b)) = (l.window_start, l.window_end) {
         if a != b {
@@ -2102,9 +2106,31 @@ pub fn run() -> Result<()> {
     res
 }
 
+/// NET for the TUI: full local date and time when LL2 knows it to the minute/hour,
+/// otherwise only the known precision (same text as the alerts), e.g. "Q4 2026".
+fn net_detail(l: &Launch, fmt: &str) -> String {
+    if l.precise() { l.net.with_timezone(&Local).format(fmt).to_string() } else { crate::newlaunch::when_text(l) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn net_detail_hides_fake_time_for_coarse() {
+        use chrono::TimeZone;
+        let mut l = Launch { net: Utc.with_ymd_and_hms(2026, 12, 31, 0, 0, 0).unwrap(), net_precision: "Y".into(), ..Default::default() };
+        assert_eq!(net_detail(&l, "%a %b %-d %H:%M %Z"), "2026");
+        l.net_precision = "Q".into();
+        assert_eq!(net_detail(&l, "%a %b %-d %H:%M %Z"), "Q4 2026");
+        // list column (9 wide): no fake day for coarse NETs
+        let now = l.net - Duration::days(60);
+        assert_eq!(short_countdown(&l, now), "Q4 2026");
+        l.net_precision = "M".into();
+        assert_eq!(short_countdown(&l, now), "Dec 2026");
+        l.net_precision = "MIN".into();
+        assert_eq!(net_detail(&l, "%H:%M"), l.net.with_timezone(&Local).format("%H:%M").to_string());
+    }
     use ratatui::backend::TestBackend;
 
     fn test_app(cache: Cache) -> App {
