@@ -45,11 +45,28 @@ Fixes.
   fetch … ; latest attempt failed: …". Successful fetches are logged as before. The cache's fetch time only
   moves on success (unchanged), and a failed attempt still counts against the local hourly budget, since LL2
   may have counted it.
+- **Day-precision (and coarser) launches vanished from the bar a day early**: LL2 stores a launch
+  it only knows to the day as 00:00 UTC of that day, and the "launch is over" check treated that as
+  a liftoff time, 30 minutes after which the launch was dropped. A launch "NET Oct 14" left the bar,
+  `liftoff status` and the TUI at 00:30 UTC Oct 14, which is 17:30 on Oct 13 in Phoenix. One rule
+  (daemon/TUI and widget, with test cases shared by both) now keeps day-and-coarser launches current
+  through the end of their labelled UTC period: the day, month, quarter or half named by LL2's code
+  (Q1 NETs also sit on Jan 31 and Feb 28 in LL2 data), or the year. Week, fiscal-year and decade NETs
+  (no LL2 samples) are kept longest. Such launches also no longer speed up the refresh pace, or make the
+  bar icon pulse and the TUI countdown blink, around 00:00 UTC.
+- `liftoff config set` with a secret key is refused before the config is read, so the refusal no
+  longer creates a default `config.toml`. `liftoff config` edits the file as stored and no longer
+  writes a `LIFTOFF_API` override into it.
 - HTTP errors (LL2, news, ntfy) no longer print the URL twice; the reason comes first, then the request once.
 - The setup wizard's ntfy subscribe hint is simpler: "Subscribe in the ntfy app using topic: '<topic>'"
   (plus a QR code); for a custom server it also names the server to add in the app.
 - When the setup wizard's test push fails, it now says why (e.g. "Connection refused",
   "status code 401").
+- Tests: `tests/e2e.sh` drives the real binary against a fake LL2 and a mock ntfy with a faked clock
+  (libfaketime). It covers NET text in UTC, Phoenix and Tokyo, the T-24h/T-1h/T-10m alerts firing once
+  (desktop + ntfy) across daemon restarts, slips, hour-precision alerts and syncs, failed-fetch
+  reporting, and both fixes above. `tests/setup-hint.sh` checks the wizard's subscribe hint for ntfy.sh
+  and for a custom server. Both run in CI.
 - README: `curl` is only used by the installer's prebuilt download, not for ntfy.
 
 ## 0.1.4 (2026-10-13)
