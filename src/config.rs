@@ -110,6 +110,33 @@ impl Default for Config {
     }
 }
 
+/// A config parse error without the secrets. toml's own Display quotes the offending source
+/// line, which can be the `ntfy_topic` / `ntfy_token` / `api_key` line, and errors end up in
+/// the journal and terminal. Keep the line/column and the message, and redact any secret
+/// value from the file that the message still mentions (serde type errors quote values).
+fn parse_error_summary(src: &str, e: &toml::de::Error) -> String {
+    let mut msg = e.message().trim().to_string();
+    for line in src.lines() {
+        let l = line.trim_start();
+        if ["ntfy_topic", "ntfy_token", "api_key"].iter().any(|k| l.starts_with(k)) {
+            if let Some((_, v)) = l.split_once('=') {
+                for part in v.split(['"', '\'', ' ', '#']).filter(|p| p.len() >= 3) {
+                    msg = msg.replace(part, "<redacted>");
+                }
+            }
+        }
+    }
+    match e.span() {
+        Some(sp) => {
+            let before = &src[..sp.start.min(src.len())];
+            let line = before.matches('\n').count() + 1;
+            let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+            format!("line {line}, column {col}: {msg}")
+        }
+        None => msg,
+    }
+}
+
 impl Config {
     pub fn is_starred(&self, provider: &str, abbrev: &str) -> bool {
         is_starred(&self.starred_providers, provider, abbrev)
@@ -120,7 +147,7 @@ impl Config {
             return Ok(Self::default());
         }
         let s = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))
+        toml::from_str(&s).map_err(|e| anyhow::anyhow!("parsing {}: {}", path.display(), parse_error_summary(&s, &e)))
     }
 
     pub fn load() -> Result<Self> {
@@ -239,5 +266,25 @@ mod tests {
         assert!(!n.ntfy);
         assert!(n.ntfy_topic.is_empty() && n.ntfy_token.is_empty());
         assert!(n.new_launch_alerts && n.new_launch_scope == "all");
+    }
+
+    #[test]
+    fn parse_error_never_quotes_secrets() {
+        let dir = std::env::temp_dir().join(format!("liftoff-cfgerr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("config.toml");
+        for bad in [
+            "[notify]\nntfy_topic = \"sentinel-topic-xyz\" broken\n",
+            "[notify]\nntfy_token = \"sentinel-token-xyz\"\nntfy = \"sentinel-token-xyz\"\n",
+            "api_key = 12345678\n",
+        ] {
+            std::fs::write(&p, bad).unwrap();
+            let e = format!("{:?}", Config::load_from(&p).unwrap_err());
+            for s in ["sentinel-topic-xyz", "sentinel-token-xyz", "12345678"] {
+                assert!(!e.contains(s), "secret in error: {e}");
+            }
+            assert!(e.contains("line "), "{e}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
